@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Aurawatt IMS",
-  description: "Aurawatt Inventory Management System",
+  title: "AURAWATT",
+  description: "Your Power Partner",
 };
 
 export default function RootLayout({
