@@ -69,7 +69,7 @@ export function ActionBtns({
 
 export function SearchBar({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   return (
-    <div className="relative">
+    <div className="relative w-full sm:w-auto">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
         <IconSearch size={14} />
       </span>
@@ -77,7 +77,7 @@ export function SearchBar({ value, onChange }: { value: string; onChange: (next:
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Search..."
-        className="pl-8 pr-4 py-2 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 w-52 transition shadow-sm"
+        className="pl-8 pr-4 py-2 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 placeholder-gray-400 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 w-full sm:w-52 transition shadow-sm"
       />
     </div>
   );
@@ -85,7 +85,7 @@ export function SearchBar({ value, onChange }: { value: string; onChange: (next:
 
 export function PageHeader({ title, sub, action }: { title: string; sub?: string; action?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
         {sub && <p className="text-gray-500 text-sm mt-0.5">{sub}</p>}
@@ -99,7 +99,7 @@ export function PrimaryBtn({ children, onClick }: { children: ReactNode; onClick
   return (
     <button
       onClick={onClick}
-      className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm hover:from-amber-400 hover:to-orange-400 transition shadow-md shadow-amber-200 flex items-center gap-2"
+      className="w-full sm:w-auto justify-center px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm hover:from-amber-400 hover:to-orange-400 transition shadow-md shadow-amber-200 flex items-center gap-2"
     >
       {children}
     </button>

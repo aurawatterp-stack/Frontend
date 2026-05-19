@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AurawattLogo from "../brand/AurawattLogo";
 import { IconAlertTriangle, IconCheckCircle } from "../icons/Icons";
 import { apiRegister } from "../../lib/api";
@@ -20,6 +20,15 @@ export default function RegisterScreen({ onGoLogin }: { onGoLogin: () => void })
   const [submittedMessage, setSubmittedMessage] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 600px)");
+    const sync = () => setIsMobile(mql.matches);
+    sync();
+    mql.addEventListener("change", sync);
+    return () => mql.removeEventListener("change", sync);
+  }, []);
 
   const set = (k: keyof RegisterForm, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -86,7 +95,7 @@ export default function RegisterScreen({ onGoLogin }: { onGoLogin: () => void })
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0e1f3d 0%, #1a3a6b 100%)", padding: 20 }}>
-      <div style={{ width: "100%", maxWidth: 480, background: "#fff", borderRadius: 20, padding: "40px 36px", boxShadow: "0 24px 80px rgba(0,0,0,0.3)" }}>
+      <div style={{ width: "100%", maxWidth: 480, background: "#fff", borderRadius: 20, padding: isMobile ? "28px 20px" : "40px 36px", boxShadow: "0 24px 80px rgba(0,0,0,0.3)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <AurawattLogo size={52} />
           <div style={{ fontSize: 22, fontWeight: 800, color: "#1e3a5f", marginTop: 12 }}>Create Account</div>
@@ -101,13 +110,13 @@ export default function RegisterScreen({ onGoLogin }: { onGoLogin: () => void })
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
           {[
             { label: "Full Name", key: "name", type: "text", placeholder: "Your full name", full: false },
             { label: "Mobile No.", key: "mobile", type: "tel", placeholder: "+91 XXXXX XXXXX", full: false },
             { label: "e-Mail Address", key: "email", type: "email", placeholder: "name@company.com", full: true },
           ].map(({ label, key, type, placeholder, full }) => (
-            <div key={key} style={{ gridColumn: full ? "1 / -1" : undefined }}>
+            <div key={key} style={{ gridColumn: isMobile || full ? "1 / -1" : undefined }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 5 }}>{label}</label>
               <input type={type} value={form[key as keyof RegisterForm]} onChange={e => set(key as keyof RegisterForm, e.target.value)} placeholder={placeholder}
                 style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid #e2e8f0", fontSize: 13, boxSizing: "border-box", outline: "none", background: "#fff", color: "#0f172a" }}

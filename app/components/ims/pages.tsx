@@ -5,7 +5,6 @@ import { DonutChart, LineChart } from "./charts";
 import { ActionBtns, Badge, PageHeader, PrimaryBtn, roleBadge, SearchBar, Table, TD, TR } from "./ui";
 import type { Product } from "../../lib/imsApi";
 import {
-  IconCheckCircle,
   IconChevronRight,
   IconCog,
   IconEye,
@@ -45,7 +44,7 @@ type User = {
   role?: string;
 } | null;
 
-function useAsyncData<T>(loader: () => Promise<T>, deps: any[]) {
+function useAsyncData<T>(loader: () => Promise<T>, deps: ReadonlyArray<unknown>) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");
@@ -53,8 +52,6 @@ function useAsyncData<T>(loader: () => Promise<T>, deps: any[]) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError("");
     loader()
       .then((d) => {
         if (cancelled) return;
@@ -74,7 +71,16 @@ function useAsyncData<T>(loader: () => Promise<T>, deps: any[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce]);
 
-  return { data, loading, error, reload: () => setNonce((n) => n + 1) };
+  return {
+    data,
+    loading,
+    error,
+    reload: () => {
+      setLoading(true);
+      setError("");
+      setNonce((n) => n + 1);
+    },
+  };
 }
 
 function formatNumber(n: number) {
@@ -123,22 +129,22 @@ export function DashboardPage({ user }: { user: User }) {
   return (
     <div>
       <PageHeader title="Dashboard" sub={`Welcome back, ${user?.name ?? ""}`} />
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {stats.map((s) => (
-          <div key={s.label} className={`rounded-2xl bg-gradient-to-br ${s.color} border ${s.border} p-5 shadow-sm`}>
+          <div key={s.label} className={`rounded-2xl bg-gradient-to-br ${s.color} border ${s.border} p-4 sm:p-5 shadow-sm`}>
             <div className="flex items-center gap-3 mb-3">
               <div className={`w-10 h-10 rounded-xl ${s.iconBg} flex items-center justify-center`}>{s.icon}</div>
               <span className="text-gray-500 text-sm font-medium">Stocks | {s.label}</span>
             </div>
-            <div className={`text-4xl font-black ${s.accent} tracking-tight`}>{s.value}</div>
+            <div className={`text-3xl sm:text-4xl font-black ${s.accent} tracking-tight`}>{s.value}</div>
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900">Inventory Timeline</h3>
-            <div className="flex gap-4 text-xs text-gray-500">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
               <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" />Sales</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-blue-500 inline-block rounded" />Raw Materials</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-500 inline-block rounded" />Manufactured</span>
@@ -151,7 +157,7 @@ export function DashboardPage({ user }: { user: User }) {
             sales={timelineRes.data?.sales ?? [0, 0, 0, 0, 0, 0]}
           />
         </div>
-        <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm flex flex-col">
+        <div className="rounded-2xl bg-white border border-gray-200 p-4 sm:p-5 shadow-sm flex flex-col">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Recent Activity</h3>
           <div className="flex flex-col gap-2.5 overflow-y-auto">
             {activity.length === 0 ? (
@@ -168,8 +174,8 @@ export function DashboardPage({ user }: { user: User }) {
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-4 mt-4">
-        <div className="col-span-2 rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        <div className="lg:col-span-2 rounded-2xl bg-white border border-gray-200 p-4 sm:p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Sales | Timeline</h3>
           <Table headers={["#", "Consumer", "Product Type", "Product Serial"]}>
             {recentSales.length === 0 ? (
@@ -186,12 +192,12 @@ export function DashboardPage({ user }: { user: User }) {
             ))}
           </Table>
         </div>
-        <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
+        <div className="rounded-2xl bg-white border border-gray-200 p-4 sm:p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Complaints Status</h3>
           <DonutChart data={donutData} />
         </div>
       </div>
-      <div className="mt-4 rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
+      <div className="mt-4 rounded-2xl bg-white border border-gray-200 p-4 sm:p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-gray-900 mb-4">Top Selling Products | This Month</h3>
         <Table headers={["#", "Product Type", "Product Model", "Qty Sold"]}>
           <TR>
@@ -216,7 +222,7 @@ export function UsersPage() {
     <div>
       <PageHeader title="User Profiles" sub="Manage system access and roles" action={<PrimaryBtn>+ Authorize New User</PrimaryBtn>} />
       <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-        <div className="flex justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <span className="text-sm text-gray-500">{filtered.length} users</span>
           <SearchBar value={q} onChange={setQ} />
         </div>
@@ -258,7 +264,7 @@ export function CustomersPage() {
     <div>
       <PageHeader title="Manage Customers" sub="Customer Directory" action={<PrimaryBtn>+ Add New Customer</PrimaryBtn>} />
       <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-        <div className="flex justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <span className="text-sm text-gray-500">
             {filtered.length} of {customersRes.data?.total ?? 0} entries
           </span>
@@ -311,14 +317,14 @@ export function SerialsPage() {
       return s.serialNumber.toLowerCase().includes(query);
     });
   }, [serialsRes.data, q, series]);
-  return (
-    <div>
-      <PageHeader title="Serial Management" sub="Serial Pool" />
-      <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-          <h3 className="font-semibold text-gray-900 mb-4">Import Serials to Series</h3>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">1. Select Product Series</label>
-          <select value={series} onChange={(e) => setSeries(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 mb-1 transition shadow-sm">
+      return (
+        <div>
+          <PageHeader title="Serial Management" sub="Serial Pool" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
+              <h3 className="font-semibold text-gray-900 mb-4">Import Serials to Series</h3>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">1. Select Product Series</label>
+              <select value={series} onChange={(e) => setSeries(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 mb-1 transition shadow-sm">
             <option value="">Choose Series...</option>
             {seriesOptions.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -442,25 +448,25 @@ export function ProductsPage() {
     return all.filter((p) => p.model.toLowerCase().includes(query) || p.series.toLowerCase().includes(query));
   }, [productsRes.data, q]);
   const sp = useMemo(() => (productsRes.data ?? []).filter((p) => p.series.startsWith("SP") || p.series.startsWith("AURAWATT")).length, [productsRes.data]);
-  const tp = useMemo(() => (productsRes.data ?? []).filter((p) => p.series.startsWith("TP")).length, [productsRes.data]);
-  return (
-    <div>
-      <PageHeader title="Manage Products" action={<PrimaryBtn onClick={openCreate}>+ Add Product</PrimaryBtn>} />
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-100 p-5 shadow-sm">
-          <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">SP Series | Single Phase</div>
-          <div className="text-5xl font-black text-blue-600">{sp}</div>
-        </div>
-        <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 p-5 shadow-sm">
-          <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">TP Series | Three Phase</div>
-          <div className="text-5xl font-black text-emerald-600">{tp}</div>
-        </div>
-      </div>
-      <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-        <div className="flex justify-between mb-4">
-          <span className="text-sm text-gray-500">Showing {filtered.length} of {productsRes.data?.length ?? 0} products</span>
-          <SearchBar value={q} onChange={setQ} />
-        </div>
+      const tp = useMemo(() => (productsRes.data ?? []).filter((p) => p.series.startsWith("TP")).length, [productsRes.data]);
+      return (
+        <div>
+          <PageHeader title="Manage Products" action={<PrimaryBtn onClick={openCreate}>+ Add Product</PrimaryBtn>} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-100 p-5 shadow-sm">
+              <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">SP Series | Single Phase</div>
+              <div className="text-5xl font-black text-blue-600">{sp}</div>
+            </div>
+            <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 p-5 shadow-sm">
+              <div className="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">TP Series | Three Phase</div>
+              <div className="text-5xl font-black text-emerald-600">{tp}</div>
+            </div>
+          </div>
+          <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <span className="text-sm text-gray-500">Showing {filtered.length} of {productsRes.data?.length ?? 0} products</span>
+              <SearchBar value={q} onChange={setQ} />
+            </div>
         <Table headers={["Product Series", "Model Name", "Manage"]}>
           {productsRes.loading ? (
             <TR>
@@ -506,7 +512,7 @@ export function ProductsPage() {
               </button>
             </div>
             <div className="px-6 py-5">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Product Series</label>
                   <input
@@ -584,14 +590,14 @@ export function RawMaterialsPage() {
         r.materialName.toLowerCase().includes(query)
     );
   }, [rawRes.data, q]);
-  return (
-    <div>
-      <PageHeader title="Raw Materials Inventory" action={<PrimaryBtn>+ Add Raw Materials</PrimaryBtn>} />
-      <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-        <div className="flex justify-between mb-4">
-          <span className="text-sm text-gray-500">Showing {filtered.length} of {rawRes.data?.total ?? 0} entries</span>
-          <SearchBar value={q} onChange={setQ} />
-        </div>
+      return (
+        <div>
+          <PageHeader title="Raw Materials Inventory" action={<PrimaryBtn>+ Add Raw Materials</PrimaryBtn>} />
+          <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <span className="text-sm text-gray-500">Showing {filtered.length} of {rawRes.data?.total ?? 0} entries</span>
+              <SearchBar value={q} onChange={setQ} />
+            </div>
         <Table headers={["Product Series", "Material Name", "Date Rcd", "Bill Type", "Ref. No.", "Qty Rcd", "Qty Avl", "Vendor", "Batch", "Manage"]}>
           {rawRes.loading ? (
             <TR>
@@ -659,7 +665,7 @@ export function ManufacturedPage() {
         }
       />
       <div className="rounded-2xl bg-white border border-gray-200 p-4 mb-4 shadow-sm">
-        <div className="grid grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {["From Date", "To Date"].map((label) => (
             <div key={label}>
               <label className="block text-xs text-gray-500 mb-1">{label}</label>
@@ -685,7 +691,7 @@ export function ManufacturedPage() {
         </div>
       </div>
       <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-        <div className="flex justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <span className="text-sm text-gray-500">{filtered.length} records</span>
           <SearchBar value={q} onChange={setQ} />
         </div>
@@ -777,7 +783,7 @@ export function SalesPage() {
           <div className="flex items-center justify-between mb-3">
             <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Customer Information</div>
           </div>
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Customer Type</label>
               <select value={custType} onChange={(e) => setCustType(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
@@ -792,7 +798,7 @@ export function SalesPage() {
               <input placeholder="Select existing email..." className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Customer Name</label>
               <input placeholder="Full Name" className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100" />
@@ -807,7 +813,7 @@ export function SalesPage() {
             <textarea rows={3} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none" />
           </div>
         </div>
-        <div className="flex justify-between mt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-6">
           <button className="px-5 py-2 rounded-lg border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 transition">Clear Form</button>
           <PrimaryBtn>Confirm & Record Sale</PrimaryBtn>
         </div>
@@ -826,7 +832,7 @@ export function ComplaintsConsumerPage() {
           <h3 className="text-base font-semibold text-gray-900">Warranty Claims: After Sales Service</h3>
           <button className="text-sm text-blue-600 hover:text-blue-700 transition font-medium">View Complaints →</button>
         </div>
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Product Serial No.</label>
             <select className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
@@ -855,7 +861,7 @@ export function ComplaintsConsumerPage() {
             <textarea rows={4} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none" />
           </div>
         </div>
-        <div className="flex justify-between mt-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-2">
           <button className="px-5 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100 transition border border-red-200">Reset</button>
           <PrimaryBtn>Raise Complaint</PrimaryBtn>
         </div>
@@ -878,7 +884,7 @@ export function ComplaintsSupplierPage() {
           <h3 className="text-base font-semibold text-gray-900">Warranty Claims (Raw Materials) Form</h3>
           <button className="text-sm text-blue-600 hover:text-blue-700 transition font-medium">View Warranty Claims →</button>
         </div>
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Raw Material</label>
             <select className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
@@ -907,7 +913,7 @@ export function ComplaintsSupplierPage() {
             <textarea rows={4} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none" />
           </div>
         </div>
-        <div className="flex justify-between mt-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-2">
           <button className="px-5 py-2 rounded-lg bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100 transition border border-red-200">Reset</button>
           <PrimaryBtn>Claim Warranty</PrimaryBtn>
         </div>
@@ -998,7 +1004,7 @@ export function DistributorsPage() {
   return (
     <div>
       <PageHeader title="Distributors" sub="Aurawatt Distributors" action={<PrimaryBtn onClick={openCreate}>+ Add Distributor</PrimaryBtn>} />
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-100 p-5 flex items-center gap-5 shadow-sm">
           <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-700">
             <IconUsers size={22} />
@@ -1021,7 +1027,7 @@ export function DistributorsPage() {
         </div>
       </div>
       <div className="rounded-2xl bg-white border border-gray-200 p-5 shadow-sm">
-        <div className="flex justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <span className="text-sm text-gray-500">{filtered.length} distributors</span>
           <SearchBar value={q} onChange={setQ} />
         </div>
@@ -1079,7 +1085,7 @@ export function DistributorsPage() {
               </button>
             </div>
             <div className="px-6 py-5">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Name</label>
                   <input
@@ -1099,7 +1105,7 @@ export function DistributorsPage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Mobile</label>
                   <input

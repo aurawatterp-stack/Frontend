@@ -70,12 +70,11 @@ export function DonutChart({ data }: { data: Array<{ label: string; value: numbe
     );
   }
 
-  let acc = 0;
   const R = 60, cx = 80, cy = 80, stroke = 28;
-  const segments = withColors.map((d) => {
-    const start = (acc / total) * 360;
+  const segments = withColors.map((d, idx) => {
+    const before = withColors.slice(0, idx).reduce((s, x) => s + x.value, 0);
+    const start = (before / total) * 360;
     const sweep = (d.value / total) * 360;
-    acc += d.value;
     const s = (start - 90) * (Math.PI / 180);
     const e = (start + sweep - 90) * (Math.PI / 180);
     const x1 = cx + R * Math.cos(s), y1 = cy + R * Math.sin(s);

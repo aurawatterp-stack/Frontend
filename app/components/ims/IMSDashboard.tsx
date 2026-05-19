@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import LogoutScreen from "../auth/LogoutScreen";
 import AurawattLogo from "../brand/AurawattLogo";
 import { NAV } from "./nav";
@@ -27,8 +27,29 @@ type User = {
 
 export default function IMSDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const sync = () => {
+      setIsDesktop(mql.matches);
+      setSidebarOpen(mql.matches);
+    };
+    sync();
+    mql.addEventListener("change", sync);
+    return () => mql.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (isDesktop) return;
+    const prev = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = sidebarOpen ? "hidden" : prev;
+    return () => {
+      document.documentElement.style.overflow = prev;
+    };
+  }, [isDesktop, sidebarOpen]);
 
   const renderPage = () => {
     switch (page) {
@@ -57,8 +78,26 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
         />
       )}
 
+      {/* Mobile overlay */}
+      {!isDesktop && sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className={`${sidebarOpen ? "w-60" : "w-0 overflow-hidden"} flex-shrink-0 transition-all duration-300 bg-white border-r border-gray-200 flex flex-col shadow-sm`}>
+      <aside
+        className={
+          isDesktop
+            ? `${sidebarOpen ? "w-60" : "w-0 overflow-hidden"} flex-shrink-0 transition-all duration-300 bg-white border-r border-gray-200 flex flex-col shadow-sm`
+            : `fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] transform transition-transform duration-300 bg-white border-r border-gray-200 flex flex-col shadow-xl ${
+                sidebarOpen ? "translate-x-0" : "-translate-x-full"
+              }`
+        }
+      >
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
           <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
             <AurawattLogo size={32} />
@@ -83,7 +122,10 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
             return (
               <button
                 key={id}
-                onClick={() => setPage(id)}
+                onClick={() => {
+                  setPage(id);
+                  if (!isDesktop) setSidebarOpen(false);
+                }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition mb-0.5 text-left ${
                   active
                     ? "bg-amber-50 text-amber-700 font-semibold border border-amber-200"
@@ -118,7 +160,7 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 flex items-center px-5 border-b border-gray-200 bg-white flex-shrink-0 gap-4 shadow-sm">
+        <header className="h-14 flex items-center px-3 sm:px-5 border-b border-gray-200 bg-white flex-shrink-0 gap-2 sm:gap-4 shadow-sm">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="text-gray-400 hover:text-gray-700 transition text-lg w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100"
@@ -130,11 +172,11 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
             <IconBell size={18} />
             <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">4</span>
           </button>
-          <div className="flex items-center gap-2.5 pl-3 border-l border-gray-100">
+          <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-black text-sm shadow">
               {user?.name?.[0]}
             </div>
-            <div>
+            <div className="hidden sm:block">
               <div className="text-sm text-gray-700 font-medium leading-none">{user?.name}</div>
               <div className="text-[10px] text-gray-400 mt-0.5">{user?.role}</div>
             </div>
@@ -148,13 +190,13 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
           </div>
         </header>
 
-        <div className="px-6 py-2 border-b border-gray-100 text-xs text-gray-400 flex items-center gap-1.5 bg-white">
+        <div className="px-3 sm:px-6 py-2 border-b border-gray-100 text-xs text-gray-400 flex items-center gap-1.5 bg-white">
           <span className="hover:text-gray-600 cursor-pointer transition" onClick={() => setPage("dashboard")}>Home</span>
           <span>/</span>
           <span className="text-gray-600 capitalize">{page.replace("-", " ").replace(/\\b\\w/g, (c) => c.toUpperCase())}</span>
         </div>
 
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 bg-gray-50">
           {renderPage()}
         </main>
       </div>
