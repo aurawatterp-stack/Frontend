@@ -13,6 +13,7 @@ export default function AurawattNavbar() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [productsOpen, setProductsOpen] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
   const [datasheetOpen, setDatasheetOpen] = useState(false);
 
@@ -22,8 +23,10 @@ export default function AurawattNavbar() {
     window.addEventListener("scroll", handler);
     return () => window.removeEventListener("scroll", handler);
   }, []);
+
   const closeAllMenus = () => {
     setMenuOpen(false);
+    setProductsOpen(false);
     setDownloadsOpen(false);
     setDatasheetOpen(false);
   };
@@ -103,14 +106,19 @@ export default function AurawattNavbar() {
             </Link>
 
             <div className="nav-dropdown">
-              <Link
+              <button
                 className={`nav-link ${activeProducts ? "nav-link--active" : ""}`}
-                href="/products"
-                onClick={closeAllMenus}
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={productsOpen}
+                onClick={() => setProductsOpen((v) => !v)}
               >
                 Products ▾
-              </Link>
-              <div className="dropdown-menu" role="menu">
+              </button>
+              <div className={`dropdown-menu ${productsOpen ? "dropdown-menu--open" : ""}`} role="menu">
+                <Link role="menuitem" href="/products" onClick={closeAllMenus}>
+                  View All Products
+                </Link>
                 <Link role="menuitem" href="/products/single-phase" onClick={closeAllMenus}>
                   SP Series (Single Phase)
                 </Link>

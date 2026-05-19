@@ -300,6 +300,13 @@ const css = `
     .logo-tagline { font-size: 10px; }
     .hamburger { padding: 8px; border-radius: 10px; }
     .hamburger:hover { background: rgba(247,147,30,0.08); }
+
+    /* Mobile dropdowns should expand inline (no hover) */
+    .nav-dropdown:hover .dropdown-menu { display: none; }
+    .nav-dropdown .dropdown-menu.dropdown-menu--open { display: flex; }
+    .dropdown-menu { position: static; min-width: unset; width: 100%; border-radius: 12px; margin-top: 6px; box-shadow: none; }
+    .dropdown-menu a, .dropdown-menu button { padding: 10px 12px; border-radius: 10px; }
+    .dropdown-menu--sub { position: static; right: auto; left: auto; top: auto; }
     .core-grid { grid-template-columns: 1fr; }
     .footer-inner { grid-template-columns: 1fr; }
     .stats-bar { flex-direction: column; align-items: center; }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 import SectionHeading from "../components/SectionHeading";
 import { BoltIcon, ShieldIcon, StarIcon, WarnIcon } from "../components/icons";
@@ -22,6 +23,7 @@ export default function ProductsPage() {
               overload: "200% | Overload Tolerance",
               ip: "IP66 Rating Design",
               href: "/products/single-phase",
+              image: { src: "/aurawattspseries.svg", alt: "Aurawatt SP Series inverter" },
             },
             {
               name: "AURAWATT TP-L / TP-H SERIES",
@@ -32,11 +34,19 @@ export default function ProductsPage() {
               overload: "150% | Overload Tolerance",
               ip: "IP65 / IP66 Rating Design",
               href: "/products/three-phase",
+              image: { src: "/TP-L.svg", alt: "Aurawatt TP Series inverter" },
             },
           ].map((p) => (
             <Link key={p.name} className="product-card" href={p.href}>
               <div className="product-card__img">
-                <span>⚡</span>
+                <Image
+                  src={p.image.src}
+                  alt={p.image.alt}
+                  fill
+                  unoptimized
+                  sizes="(max-width: 600px) 92vw, (max-width: 900px) 80vw, 360px"
+                  style={{ objectFit: "contain" }}
+                />
               </div>
               <h4>{p.name}</h4>
               <p className="product-card__range">{p.range}</p>
@@ -64,4 +74,3 @@ export default function ProductsPage() {
     </main>
   );
 }
-
