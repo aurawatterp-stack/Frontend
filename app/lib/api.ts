@@ -16,17 +16,19 @@ const TOKEN_KEY = "aurawatt:token";
 function apiBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_BASE_URL;
   const base = (raw ?? "").trim();
-  if (base) return base.replace(/\/+$/, "");
-
-  // Safe fallback:
-  // - Local dev: default to local API server.
-  // - Deployed: use same-origin (works with Vercel rewrites / proxies).
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
     const isLocalHost = host === "localhost" || host === "127.0.0.1";
-    return isLocalHost ? "http://localhost:5000" : "";
+    // In production deployments, always prefer same-origin `/api/*` (Next/Vercel rewrite proxy)
+    // to avoid CORS issues. If you want to hit a different backend, set `API_PROXY_TARGET`
+    // in the Next.js project instead.
+    if (!isLocalHost) return "";
+
+    if (base) return base.replace(/\/+$/, "");
+    return "http://localhost:5000";
   }
 
+  if (base) return base.replace(/\/+$/, "");
   return "http://localhost:5000";
 }
 
