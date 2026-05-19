@@ -6,6 +6,7 @@ const css = `
     --orange: #f7931e;
     --dark: #1a1a2e;
     --dark2: #16213e;
+    --page-edge: var(--dark2);
     --text: #2d2d2d;
     --text-light: #666;
     --bg: #f8f9fa;
@@ -18,6 +19,8 @@ const css = `
   }
   html { scroll-behavior: smooth; }
   body { font-family: var(--font-body); color: var(--text); background: var(--bg); }
+  /* Prevent accidental horizontal panning on iOS when any child overflows by a few px */
+  body { overflow-x: clip; }
 
   /* TOP BAR */
   .topbar { background: var(--dark); color: #ccc; font-size: 12px; padding: 6px 40px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -276,12 +279,13 @@ const css = `
     .partner-card { width: 200px; height: 86px; }
   }
   @media (max-width: 600px) {
-    /* Mobile: avoid forcing extra empty space below the hero image */
-    .hero { min-height: auto; padding: 28px 16px calc(20px + env(safe-area-inset-bottom)); }
+    /* Mobile: don't force full-viewport hero (creates extra empty space on iOS) */
+    .hero { min-height: 0; padding: 24px 16px calc(12px + env(safe-area-inset-bottom)); }
     .hero-inner { gap: 18px; }
     .hero-sub { margin-bottom: 18px; }
-    .hero-actions { margin-bottom: 4px; }
-    .hero-image { width: min(960px, 92vw); }
+    .hero-actions { margin-bottom: 0px; }
+    .hero-image { width: 100%; max-width: 100%; }
+    .hero-mockup { align-items: center; }
     .nav-links { display: none; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: white; border-bottom: 1px solid var(--border); padding: 16px; gap: 4px; box-shadow: var(--shadow); }
     .nav-links--open { display: flex; }
     .navbar { position: sticky; }

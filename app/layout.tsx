@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   description: "Your Power Partner",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+} as const;
+
 export default function RootLayout({
   children,
 }: Readonly<{
