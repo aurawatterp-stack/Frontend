@@ -16,12 +16,27 @@ export default function AurawattNavbar() {
   const [productsOpen, setProductsOpen] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false);
   const [datasheetOpen, setDatasheetOpen] = useState(false);
+  const [hoverSupported, setHoverSupported] = useState(false);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     handler();
     window.addEventListener("scroll", handler);
     return () => window.removeEventListener("scroll", handler);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = () => setHoverSupported(media.matches);
+    update();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+
+    media.addListener(update);
+    return () => media.removeListener(update);
   }, []);
 
   const closeAllMenus = () => {
@@ -111,7 +126,16 @@ export default function AurawattNavbar() {
                 type="button"
                 aria-haspopup="menu"
                 aria-expanded={productsOpen}
-                onClick={() => setProductsOpen((v) => !v)}
+                onClick={() =>
+                  setProductsOpen((v) => {
+                    const next = !v;
+                    if (next) {
+                      setDownloadsOpen(false);
+                      setDatasheetOpen(false);
+                    }
+                    return next;
+                  })
+                }
               >
                 Products ▾
               </button>
@@ -140,7 +164,14 @@ export default function AurawattNavbar() {
                 type="button"
                 aria-haspopup="menu"
                 aria-expanded={downloadsOpen}
-                onClick={() => setDownloadsOpen((v) => !v)}
+                onClick={() => {
+                  setProductsOpen(false);
+                  setDownloadsOpen((v) => {
+                    const next = !v;
+                    setDatasheetOpen(false);
+                    return next;
+                  });
+                }}
               >
                 Downloads ▾
               </button>
@@ -155,14 +186,23 @@ export default function AurawattNavbar() {
                   Products Catalogue
                 </a>
 
-                <div className="dropdown-sub">
+                <div
+                  className="dropdown-sub"
+                  onMouseEnter={() => {
+                    if (hoverSupported) setDatasheetOpen(true);
+                  }}
+                  onMouseLeave={() => {
+                    if (hoverSupported) setDatasheetOpen(false);
+                  }}
+                >
                   <button
                     className="dropdown-sub__trigger"
                     type="button"
                     aria-haspopup="menu"
                     aria-expanded={datasheetOpen}
-                    onClick={() => setDatasheetOpen((v) => !v)}
-                    onMouseEnter={() => setDatasheetOpen(true)}
+                    onClick={() => {
+                      if (!hoverSupported) setDatasheetOpen((v) => !v);
+                    }}
                   >
                     Products Datasheet ▸
                   </button>

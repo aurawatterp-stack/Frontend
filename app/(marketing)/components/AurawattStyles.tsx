@@ -45,13 +45,13 @@ const css = `
   .nav-link--cta { background: var(--teal); color: white !important; padding: 8px 20px; border-radius: 6px; font-weight: 600; }
   .nav-link--cta:hover { background: var(--teal-dark) !important; }
   .nav-dropdown { position: relative; }
-  .nav-dropdown:hover .dropdown-menu { display: flex; }
+  .nav-dropdown:hover > .dropdown-menu { display: flex; }
   .dropdown-menu { display: none; position: absolute; top: 100%; left: 0; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); flex-direction: column; min-width: 220px; overflow: visible; }
   .dropdown-menu a, .dropdown-menu button { background: none; border: none; cursor: pointer; padding: 12px 16px; text-align: left; font-size: 13px; color: var(--text); transition: background 0.15s; text-decoration: none; width: 100%; }
   .dropdown-menu a:hover, .dropdown-menu button:hover { background: rgba(247,147,30,0.08); color: var(--teal); }
   .dropdown-menu--open { display: flex; }
   .dropdown-sub { position: relative; }
-  .dropdown-sub:hover .dropdown-menu--sub { display: flex; }
+  .dropdown-sub:hover > .dropdown-menu--sub { display: flex; }
   .dropdown-sub__trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .dropdown-menu--sub { top: 0; left: auto; right: 100%; min-width: 240px; }
   .hamburger { display: none; flex-direction: column; gap: 5px; background: none; border: none; cursor: pointer; padding: 4px; }
@@ -302,8 +302,9 @@ const css = `
     .hamburger:hover { background: rgba(247,147,30,0.08); }
 
     /* Mobile dropdowns should expand inline (no hover) */
-    .nav-dropdown:hover .dropdown-menu { display: none; }
+    .nav-dropdown:hover > .dropdown-menu { display: none; }
     .nav-dropdown .dropdown-menu.dropdown-menu--open { display: flex; }
+    .dropdown-sub:hover > .dropdown-menu--sub { display: none; }
     .dropdown-menu { position: static; min-width: unset; width: 100%; border-radius: 12px; margin-top: 6px; box-shadow: none; }
     .dropdown-menu a, .dropdown-menu button { padding: 10px 12px; border-radius: 10px; }
     .dropdown-menu--sub { position: static; right: auto; left: auto; top: auto; }

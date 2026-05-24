@@ -20,10 +20,19 @@ import {
 } from "./pages";
 
 type User = {
+  id?: string;
   name?: string;
   email?: string;
   role?: string;
 } | null;
+
+function displayNameForUser(user: User) {
+  if (!user) return "";
+  if (user.role === "Admin") {
+    return (process.env.NEXT_PUBLIC_ADMIN_DISPLAY_NAME || "").trim() || "Admin";
+  }
+  return user.name || "";
+}
 
 export default function IMSDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [page, setPage] = useState("dashboard");
@@ -54,7 +63,7 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
   const renderPage = () => {
     switch (page) {
       case "dashboard": return <DashboardPage user={user} />;
-      case "users": return <UsersPage />;
+      case "users": return <UsersPage currentUser={user} />;
       case "customers": return <CustomersPage />;
       case "serials": return <SerialsPage />;
       case "products": return <ProductsPage />;
@@ -142,10 +151,10 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
           {/* User info in sidebar */}
           <div className="flex items-center gap-2.5 px-3 py-2 mb-1 rounded-lg bg-gray-50 border border-gray-100">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-black text-xs">
-              {user?.name?.[0]}
+              {displayNameForUser(user)?.[0]}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-gray-800 truncate">{user?.name}</div>
+              <div className="text-xs font-semibold text-gray-800 truncate">{displayNameForUser(user)}</div>
               <div className="text-[10px] text-gray-400 truncate">{user?.role}</div>
             </div>
           </div>
@@ -174,10 +183,10 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
           </button>
           <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-black text-sm shadow">
-              {user?.name?.[0]}
+              {displayNameForUser(user)?.[0]}
             </div>
             <div className="hidden sm:block">
-              <div className="text-sm text-gray-700 font-medium leading-none">{user?.name}</div>
+              <div className="text-sm text-gray-700 font-medium leading-none">{displayNameForUser(user)}</div>
               <div className="text-[10px] text-gray-400 mt-0.5">{user?.role}</div>
             </div>
             <button
