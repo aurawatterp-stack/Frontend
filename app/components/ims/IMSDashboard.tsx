@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import LogoutScreen from "../auth/LogoutScreen";
 import AurawattLogo from "../brand/AurawattLogo";
 import { NAV } from "./nav";
-import { IconBell, IconLogout, IconMenu } from "../icons/Icons";
+import { IconLogout, IconMenu } from "../icons/Icons";
+import NotificationsBell from "./NotificationsBell";
 import {
   ComplaintsConsumerPage,
   ComplaintsSupplierPage,
@@ -177,10 +178,7 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
             <IconMenu size={18} />
           </button>
           <div className="flex-1" />
-          <button className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition text-gray-500 hover:text-gray-700">
-            <IconBell size={18} />
-            <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">4</span>
-          </button>
+          <NotificationsBell />
           <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-black text-sm shadow">
               {displayNameForUser(user)?.[0]}

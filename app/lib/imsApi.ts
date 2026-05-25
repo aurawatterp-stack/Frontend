@@ -110,6 +110,19 @@ export type DashboardTimeline = {
   sales: number[];
 };
 
+export type NotificationItem = {
+  id: string;
+  type: string;
+  title: string;
+  body?: string;
+  entityType?: string;
+  entityId?: string;
+  meta?: Record<string, unknown>;
+  createdBy?: string;
+  createdAt: string;
+  isRead: boolean;
+};
+
 export async function getDashboardStats() {
   return apiGet<DashboardStats>("/api/dashboard/stats");
 }
@@ -304,4 +317,25 @@ export async function updateDistributor(
 
 export async function deleteDistributor(id: string) {
   return apiDelete<{ message: string }>(`/api/distributors/${id}`);
+}
+
+export async function listNotifications(params: { page?: number; limit?: number; unreadOnly?: boolean } = {}) {
+  return apiGet<ApiPage<NotificationItem>>("/api/notifications", {
+    page: params.page ?? 1,
+    limit: params.limit ?? 20,
+    unreadOnly: params.unreadOnly ? 1 : undefined,
+  });
+}
+
+export async function getUnreadNotificationCount() {
+  const res = await apiGet<{ count: number }>("/api/notifications/unread-count");
+  return res.count;
+}
+
+export async function markNotificationRead(id: string) {
+  return apiPost<{ message: string }>(`/api/notifications/${id}/read`, {});
+}
+
+export async function markAllNotificationsRead() {
+  return apiPost<{ updated: number }>("/api/notifications/read-all", {});
 }
