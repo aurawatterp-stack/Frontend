@@ -52,12 +52,17 @@ import {
   createComplaint,
   updateComplaintStatus,
   listComplaints,
+  listRoles,
+  createRole,
+  updateRolePermissions,
+  deleteRole,
 } from "../../lib/imsApi";
 
 type User = {
   name?: string;
   email?: string;
   role?: string;
+  permissions?: string[];
 } | null;
 
 function useAsyncData<T>(loader: () => Promise<T>, deps: ReadonlyArray<unknown>) {
@@ -118,11 +123,24 @@ export function DashboardPage({ user }: { user: User }) {
     user?.role === "Admin"
       ? (process.env.NEXT_PUBLIC_ADMIN_DISPLAY_NAME || "").trim() || "Admin"
       : (user?.name ?? "");
+  const isAdmin = user?.role === "Admin";
+  const perms = user?.permissions ?? [];
+  const can = (p: string) => Boolean(isAdmin || perms.includes(p));
+  const canSales = can("sales:entry");
+  const canCustomers = can("customers:manage") || can("sales:entry");
+  const canComplaintStats = can("complaints:consumer") || can("complaints:supplier");
+
   const statsRes = useAsyncData(getDashboardStats, []);
   const timelineRes = useAsyncData(() => getDashboardTimeline(6), []);
-  const complaintStatsRes = useAsyncData(getComplaintStats, []);
-  const salesRes = useAsyncData(() => listSales({ page: 1, limit: 10 }), []);
-  const customersRes = useAsyncData(() => listCustomers({ page: 1, limit: 100 }), []);
+  const complaintStatsRes = useAsyncData(() => (canComplaintStats ? getComplaintStats() : Promise.resolve([])), [canComplaintStats]);
+  const salesRes = useAsyncData(
+    () => (canSales ? listSales({ page: 1, limit: 10 }) : Promise.resolve({ data: [], total: 0, page: 1, limit: 10 })),
+    [canSales]
+  );
+  const customersRes = useAsyncData(
+    () => (canCustomers ? listCustomers({ page: 1, limit: 100 }) : Promise.resolve({ data: [], total: 0, page: 1, limit: 100 })),
+    [canCustomers]
+  );
 
   const stats = useMemo(() => {
     const s = statsRes.data;
@@ -255,6 +273,7 @@ export function UsersPage({ currentUser }: { currentUser?: { id?: string } | nul
   });
   const usersRes = useAsyncData(listUsers, []);
   const pendingRes = useAsyncData(listPendingRegistrations, []);
+  const rolesRes = useAsyncData(listRoles, []);
   const filtered = useMemo(() => {
     const all = usersRes.data ?? [];
     const query = q.trim().toLowerCase();
@@ -287,7 +306,12 @@ export function UsersPage({ currentUser }: { currentUser?: { id?: string } | nul
     }
   };
 
-  const roleOptions = ["Admin", "Inventory Manager", "Sales Manager", "Distributor"];
+  const roleOptions = useMemo(() => {
+    const base = (rolesRes.data ?? []).map((r) => r.name).filter(Boolean);
+    const unique = Array.from(new Set(["Admin", ...base]));
+    unique.sort((a, b) => a.localeCompare(b));
+    return unique;
+  }, [rolesRes.data]);
 
   const openEditUser = (u: UserSafe) => {
     setEditUser(u);
@@ -616,6 +640,230 @@ export function UsersPage({ currentUser }: { currentUser?: { id?: string } | nul
             </TR>
           ))}
         </Table>
+      </div>
+    </div>
+  );
+}
+
+export function RoleManagementPage() {
+  const rolesRes = useAsyncData(listRoles, []);
+  const [savingRole, setSavingRole] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const permGroups: Array<{ title: string; items: Array<{ perm: string; label: string }> }> = [
+    {
+      title: "Inventory",
+      items: [
+        { perm: "inventory:serials", label: "Serial Management" },
+        { perm: "inventory:products", label: "Manage Products" },
+        { perm: "inventory:raw-materials", label: "Raw Materials Inventory" },
+        { perm: "inventory:manufactured", label: "Manufactured Products" },
+      ],
+    },
+    { title: "Sales", items: [{ perm: "sales:entry", label: "Sales Data Entry" }] },
+    {
+      title: "Service",
+      items: [
+        { perm: "complaints:consumer", label: "Complaints: Consumer" },
+        { perm: "complaints:supplier", label: "Complaints: Supplier" },
+      ],
+    },
+  ];
+
+  const toggle = async (roleId: string, perm: string, checked: boolean) => {
+    setSaveError("");
+    const roles = rolesRes.data ?? [];
+    const role = roles.find((r) => r.id === roleId);
+    if (!role) return;
+    const current = new Set(role.permissions ?? []);
+    if (checked) current.add(perm);
+    else current.delete(perm);
+
+    setSavingRole(roleId);
+    try {
+      await updateRolePermissions(roleId, Array.from(current));
+      rolesRes.reload();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to update role permissions.");
+    } finally {
+      setSavingRole(null);
+    }
+  };
+
+  const createNewRole = async () => {
+    const name = newRoleName.trim();
+    if (!name) return;
+    setCreating(true);
+    setSaveError("");
+    try {
+      await createRole(name);
+      setNewRoleName("");
+      setCreateOpen(false);
+      rolesRes.reload();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to create role.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const removeRole = async (roleId: string, roleName: string) => {
+    const ok = window.confirm(`Delete role “${roleName}”?`);
+    if (!ok) return;
+    setSavingRole(roleId);
+    setSaveError("");
+    try {
+      await deleteRole(roleId);
+      rolesRes.reload();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to delete role.");
+    } finally {
+      setSavingRole(null);
+    }
+  };
+
+  const roles = rolesRes.data ?? [];
+  const sorted = [...roles].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  return (
+    <div>
+      <PageHeader
+        title="Role Management"
+        sub="Create roles and enable/disable modules for each role (single tick)"
+        action={<PrimaryBtn onClick={() => setCreateOpen(true)}>+ Create Role</PrimaryBtn>}
+      />
+
+      {createOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close create role modal"
+            className="absolute inset-0 bg-black/40"
+            onClick={() => { if (!creating) setCreateOpen(false); }}
+          />
+          <div className="relative w-full max-w-lg rounded-2xl bg-white border border-gray-200 shadow-2xl">
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+              <div>
+                <div className="text-lg font-extrabold text-gray-900">Create Role</div>
+                <div className="text-xs text-gray-500 mt-0.5">Example: “Warehouse”, “Support L1”, “Accounts”.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                disabled={creating}
+                className="w-9 h-9 rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center justify-center disabled:opacity-50"
+                aria-label="Close"
+              >
+                <IconX size={16} />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Role Name</label>
+              <input
+                value={newRoleName}
+                onChange={(e) => setNewRoleName(e.target.value)}
+                placeholder="Role name"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-800 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+              <div className="mt-2 text-[11px] text-gray-500">After creating, enable modules using the checkboxes.</div>
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                disabled={creating}
+                className="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={createNewRole}
+                disabled={creating || !newRoleName.trim()}
+                className={`px-4 py-2 rounded-lg text-white text-sm font-semibold shadow-md shadow-amber-200 ${
+                  creating || !newRoleName.trim()
+                    ? "bg-amber-300 cursor-not-allowed"
+                    : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400"
+                }`}
+              >
+                {creating ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {saveError}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {rolesRes.loading ? (
+          <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm text-gray-500">Loading roles…</div>
+        ) : rolesRes.error ? (
+          <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm text-red-600">{rolesRes.error}</div>
+        ) : sorted.map((r) => {
+          const isAdmin = r.name === "Admin";
+          const perms = new Set(r.permissions ?? []);
+          return (
+            <div key={r.id} className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="text-lg font-bold text-gray-900">{r.name}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {isAdmin ? "Toggle permissions to restrict Admin modules if needed." : "Toggle permissions to grant/restrict modules."}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {savingRole === r.id && <div className="text-xs text-gray-500">Saving…</div>}
+                  {!isAdmin && r.isSystem !== true && (
+                    <button
+                      type="button"
+                      onClick={() => removeRole(r.id, r.name)}
+                      disabled={savingRole === r.id}
+                      className="text-xs text-red-600 hover:text-red-700 font-semibold disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {permGroups.map((g) => (
+                <div key={g.title} className="mb-4 last:mb-0">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{g.title}</div>
+                  <div className="space-y-2">
+                    {g.items.map((it) => {
+                      const checked = perms.has(it.perm);
+                      return (
+                        <label key={it.perm} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
+                          checked ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"
+                        }`}>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-gray-900 truncate">{it.label}</div>
+                            <div className="text-[11px] text-gray-500 font-mono truncate">{it.perm}</div>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={savingRole === r.id}
+                            onChange={(e) => toggle(r.id, it.perm, e.target.checked)}
+                            className="w-5 h-5 accent-amber-500"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

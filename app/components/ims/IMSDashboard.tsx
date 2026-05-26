@@ -15,17 +15,27 @@ import {
   ManufacturedPage,
   ProductsPage,
   RawMaterialsPage,
+  RoleManagementPage,
   SalesPage,
   SerialsPage,
   UsersPage,
 } from "./pages";
+import type { AuthUser } from "../../lib/api";
 
-type User = {
-  id?: string;
-  name?: string;
-  email?: string;
-  role?: string;
-} | null;
+type User = AuthUser | null;
+
+const PAGE_PERMISSIONS: Record<string, string | string[] | undefined> = {
+  users: "users:manage",
+  customers: "customers:manage",
+  serials: "inventory:serials",
+  products: "inventory:products",
+  rawmaterials: "inventory:raw-materials",
+  manufactured: "inventory:manufactured",
+  sales: "sales:entry",
+  "complaints-consumer": "complaints:consumer",
+  "complaints-supplier": "complaints:supplier",
+  distributors: "distributors:manage",
+};
 
 function displayNameForUser(user: User) {
   if (!user) return "";
@@ -40,6 +50,46 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
   const [isDesktop, setIsDesktop] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const isAdmin = user?.role === "Admin";
+  const permissions = user?.permissions ?? [];
+  const can = (perm: string) => Boolean(isAdmin || permissions.includes(perm));
+  const canAccessPage = (pageId: string) => {
+    if (pageId === "dashboard") return true;
+    if (pageId === "role-management") return Boolean(isAdmin);
+    const req = PAGE_PERMISSIONS[pageId];
+    if (!req) return true;
+    const reqs = Array.isArray(req) ? req : [req];
+    return reqs.some(can);
+  };
+
+  const visibleNav = (() => {
+    const out: typeof NAV = [];
+    let bufferedHeader: (typeof NAV)[number] | null = null;
+    for (const item of NAV) {
+      if (item.group === "header") {
+        bufferedHeader = item;
+        continue;
+      }
+      const id = item.id;
+      if (!id) continue;
+      if (!canAccessPage(id)) continue;
+      if (bufferedHeader) {
+        out.push(bufferedHeader);
+        bufferedHeader = null;
+      }
+      out.push(item);
+    }
+    return out;
+  })();
+
+  useEffect(() => {
+    if (!canAccessPage(page)) {
+      const first = visibleNav.find((i) => i.id)?.id ?? "dashboard";
+      setPage(first);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, user?.role, (user?.permissions ?? []).join("|")]);
 
   useEffect(() => {
     const mql = window.matchMedia("(min-width: 1024px)");
@@ -62,9 +112,18 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
   }, [isDesktop, sidebarOpen]);
 
   const renderPage = () => {
+    if (!canAccessPage(page)) {
+      return (
+        <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm">
+          <div className="text-lg font-bold text-gray-900 mb-1">Access denied</div>
+          <div className="text-sm text-gray-500">You don&apos;t have permission to access this module.</div>
+        </div>
+      );
+    }
     switch (page) {
       case "dashboard": return <DashboardPage user={user} />;
       case "users": return <UsersPage currentUser={user} />;
+      case "role-management": return <RoleManagementPage />;
       case "customers": return <CustomersPage />;
       case "serials": return <SerialsPage />;
       case "products": return <ProductsPage />;
@@ -118,7 +177,7 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto py-3 px-2">
-          {NAV.map((item, idx) => {
+          {visibleNav.map((item, idx) => {
             if (item.group === "header") {
               return (
                 <div key={idx} className="px-3 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">

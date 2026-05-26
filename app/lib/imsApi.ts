@@ -339,3 +339,28 @@ export async function markNotificationRead(id: string) {
 export async function markAllNotificationsRead() {
   return apiPost<{ updated: number }>("/api/notifications/read-all", {});
 }
+
+export type RoleConfig = {
+  id: string;
+  name: string;
+  permissions: string[];
+  isSystem?: boolean;
+  createdAt?: string;
+  updatedAt: string;
+};
+
+export async function listRoles() {
+  return apiGet<RoleConfig[]>("/api/roles");
+}
+
+export async function createRole(name: string) {
+  return apiPost<RoleConfig>("/api/roles", { name });
+}
+
+export async function updateRolePermissions(roleId: string, permissions: string[]) {
+  return apiPut<RoleConfig>(`/api/roles/${encodeURIComponent(roleId)}`, { permissions });
+}
+
+export async function deleteRole(roleId: string) {
+  return apiDelete<{ message: string }>(`/api/roles/${encodeURIComponent(roleId)}`);
+}

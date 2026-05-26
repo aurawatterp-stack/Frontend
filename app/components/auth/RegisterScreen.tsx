@@ -134,9 +134,9 @@ export default function RegisterScreen({ onGoLogin }: { onGoLogin: () => void })
             >
               <option value="">Select Role...</option>
               <option>Admin</option>
-              <option>Inventory Manager</option>
-              <option>Sales Manager</option>
-              <option>Distributor</option>
+              <option>Inventory</option>
+              <option>Sales</option>
+              <option>Service</option>
             </select>
           </div>
           {[

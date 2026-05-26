@@ -22,9 +22,11 @@ export function Badge({ children, color }: { children: ReactNode; color?: string
 
 export function roleBadge(role: string) {
   if (role === "Admin") return <Badge color="red">{role}</Badge>;
+  if (role === "Sales") return <Badge color="blue">{role}</Badge>;
+  if (role === "Inventory") return <Badge color="orange">{role}</Badge>;
+  if (role === "Service") return <Badge color="yellow">{role}</Badge>;
   if (role === "Distributor") return <Badge color="teal">{role}</Badge>;
-  if (role === "Sales Manager") return <Badge color="blue">{role}</Badge>;
-  return <Badge color="orange">{role}</Badge>;
+  return <Badge color="gray">{role}</Badge>;
 }
 
 export function ActionBtns({

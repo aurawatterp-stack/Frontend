@@ -31,6 +31,31 @@ export default function AurawattIMS() {
       .finally(() => setBooting(false));
   }, []);
 
+  useEffect(() => {
+    if (screen !== "dashboard") return;
+    let cancelled = false;
+
+    const refresh = () => {
+      apiMe()
+        .then((u) => {
+          if (cancelled) return;
+          setCurrentUser(u);
+        })
+        .catch(() => {
+          // ignore: token may have expired; existing UI will handle on next action
+        });
+    };
+
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    const id = window.setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(id);
+    };
+  }, [screen]);
+
   const handleLogin = (user: AuthUser) => {
     setCurrentUser(user);
     setScreen("dashboard");
