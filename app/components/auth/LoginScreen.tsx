@@ -49,7 +49,18 @@ export default function LoginScreen({
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: isMobile ? "column" : "row", fontFamily: "'Segoe UI', system-ui, sans-serif", background: "#0f1629" }}>
+    <div
+      style={{
+        height: "100dvh",
+        minHeight: "100vh",
+        width: "100%",
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+        background: "#0f1629",
+        overflow: isMobile ? "auto" : "hidden",
+      }}
+    >
       {/* Left Panel */}
       {!isMobile && (
       <div style={{
@@ -116,12 +127,14 @@ export default function LoginScreen({
         width: isMobile ? "100%" : 480,
         display: "flex",
         flex: isMobile ? 1 : undefined,
-        minHeight: isMobile ? "100vh" : undefined,
+        height: isMobile ? "auto" : "100%",
+        minHeight: isMobile ? "100dvh" : undefined,
         alignItems: "center",
         justifyContent: "center",
         padding: isMobile ? 20 : 40,
         background: "#f8fafc",
-        position: "relative"
+        position: "relative",
+        overflowY: "auto",
       }}>
         {/* Background image blur effect overlay */}
         <div style={{

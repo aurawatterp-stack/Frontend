@@ -65,11 +65,25 @@ export type SerialEntry = { id: string; serialNumber: string; productSeriesId: s
 
 export type Sale = {
   id: string;
-  serialNumber: string;
+  serialNumber?: string;
   documentType: string;
   referenceNo: string;
   saleDate: string;
   customerId: string;
+  registrationCode?: string;
+  materialName?: string;
+  quantity?: number;
+  stateRegion?: string;
+  dealerRegistered?: boolean;
+  rjApprovalStatus?: string;
+  forcePiPermission?: boolean;
+  priceCategory?: string;
+  availableQuantity?: number;
+  inventoryStatus?: string;
+  forcePiApprovalStatus?: string;
+  expectedDispatchDate?: string;
+  dispatchStatus?: string;
+  paymentStatus?: string;
 };
 
 export type Complaint = {
@@ -83,6 +97,22 @@ export type Complaint = {
   rawMaterialId?: string;
   rawMaterialName?: string;
   vendorName?: string;
+  ticketSource?: string;
+  l1Sla?: string;
+  initialAction?: string;
+  trackingNotes?: string;
+  escalationLevel?: string;
+  technicalDiagnosis?: string;
+  spareRequired?: boolean;
+  spareName?: string;
+  spareInventoryStatus?: string;
+  dispatchPlan?: string;
+  siteVisitRequired?: boolean;
+  engineerName?: string;
+  l3SupportRequired?: boolean;
+  finalResolution?: string;
+  clientFeedback?: string;
+  closureReport?: string;
 };
 
 export type Distributor = {
@@ -266,11 +296,25 @@ export async function listSales(params: { page?: number; limit?: number } = {}) 
 }
 
 export async function createSale(input: {
-  serialNumber: string;
+  serialNumber?: string;
   documentType: string;
   referenceNo: string;
   saleDate: string;
   customerId: string;
+  registrationCode?: string;
+  materialName?: string;
+  quantity?: number;
+  stateRegion?: string;
+  dealerRegistered?: boolean;
+  rjApprovalStatus?: string;
+  forcePiPermission?: boolean;
+  priceCategory?: string;
+  availableQuantity?: number;
+  inventoryStatus?: string;
+  forcePiApprovalStatus?: string;
+  expectedDispatchDate?: string;
+  dispatchStatus?: string;
+  paymentStatus?: string;
 }) {
   return apiPost<Sale>("/api/sales", input);
 }
@@ -288,6 +332,22 @@ export async function createComplaint(input: {
   rawMaterialId?: string;
   rawMaterialName?: string;
   vendorName?: string;
+  ticketSource?: string;
+  l1Sla?: string;
+  initialAction?: string;
+  trackingNotes?: string;
+  escalationLevel?: string;
+  technicalDiagnosis?: string;
+  spareRequired?: boolean;
+  spareName?: string;
+  spareInventoryStatus?: string;
+  dispatchPlan?: string;
+  siteVisitRequired?: boolean;
+  engineerName?: string;
+  l3SupportRequired?: boolean;
+  finalResolution?: string;
+  clientFeedback?: string;
+  closureReport?: string;
 }) {
   return apiPost<Complaint>("/api/complaints", input);
 }

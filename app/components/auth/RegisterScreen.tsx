@@ -64,7 +64,7 @@ export default function RegisterScreen({ onGoLogin }: { onGoLogin: () => void })
 
   if (submitted) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f1629" }}>
+      <div style={{ height: "100dvh", minHeight: "100vh", width: "100%", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f1629" }}>
         <div style={{
           background: "#fff", borderRadius: 20, padding: "48px 40px", maxWidth: 400, width: "90%",
           textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
@@ -94,7 +94,7 @@ export default function RegisterScreen({ onGoLogin }: { onGoLogin: () => void })
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0e1f3d 0%, #1a3a6b 100%)", padding: 20 }}>
+    <div style={{ height: "100dvh", minHeight: "100vh", width: "100%", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0e1f3d 0%, #1a3a6b 100%)", padding: 20 }}>
       <div style={{ width: "100%", maxWidth: 480, background: "#fff", borderRadius: 20, padding: isMobile ? "28px 20px" : "40px 36px", boxShadow: "0 24px 80px rgba(0,0,0,0.3)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <AurawattLogo size={52} />

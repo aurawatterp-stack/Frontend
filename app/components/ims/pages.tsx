@@ -153,14 +153,17 @@ export function DashboardPage({ user }: { user: User }) {
 
   const activity = useMemo(() => {
     const sales = salesRes.data?.data ?? [];
-    return sales.slice(0, 7).map((s) => ({ time: daysAgo(s.saleDate), msg: `Product Sold: ${s.serialNumber}` }));
+    return sales.slice(0, 7).map((saleItem) => ({ time: daysAgo(saleItem.saleDate), msg: `Sales PI: ${saleItem.referenceNo}` }));
   }, [salesRes.data]);
 
   const recentSales = useMemo(() => {
     const sales = salesRes.data?.data ?? [];
     const customers = customersRes.data?.data ?? [];
-    const map = new Map(customers.map((c) => [c.id, c.name]));
-    return sales.slice(0, 5).map((s) => ({ customer: map.get(s.customerId) || s.customerId, serial: s.serialNumber }));
+    const map = new Map(customers.map((customerItem) => [customerItem.id, customerItem.name]));
+    return sales.slice(0, 5).map((saleItem) => ({
+      customer: map.get(saleItem.customerId) || saleItem.customerId,
+      serial: saleItem.serialNumber || saleItem.materialName || saleItem.referenceNo,
+    }));
   }, [salesRes.data, customersRes.data]);
 
   const donutData = useMemo(() => (complaintStatsRes.data ?? []).map((r) => ({ label: r.status, value: r.count })), [complaintStatsRes.data]);
@@ -1855,7 +1858,12 @@ export function ManufacturedPage() {
 
   const productByModel = useMemo(() => {
     const products = productsRes.data ?? [];
-    return new Map(products.map((p) => [p.model, p]));
+    const map = new Map<string, Product>();
+    products.forEach((productItem) => {
+      map.set(productItem.id, productItem);
+      map.set(productItem.model, productItem);
+    });
+    return map;
   }, [productsRes.data]);
 
   const seriesOptions = useMemo(() => {
@@ -2293,23 +2301,114 @@ export function ManufacturedPage() {
   );
 }
 
+const SALES_WORKFLOW_STEPS = [
+  { step: 1, module: "Distributor Registration", description: "Distributor onboarding with KYC verification" },
+  { step: 2, module: "Dealer Verification", description: "Check whether dealer/distributor is registered" },
+  { step: 3, module: "RJ Approval", description: "Non-registered dealer requires approval by RJ" },
+  { step: 4, module: "Force PI Permission", description: "RJ can approve force PI for non-registered cases" },
+  { step: 5, module: "Price Category Decision", description: "Dealer price or distributor price decided by RJ" },
+  { step: 6, module: "PI Generation", description: "Marketing team generates PI" },
+  { step: 7, module: "Required Inputs", description: "Reg Code, Material Name, Quantity, State/Region" },
+  { step: 8, module: "Inventory Check", description: "ERP checks stock availability" },
+  { step: 9, module: "Qty Validation", description: "Popup alert shown if quantity is less" },
+  { step: 10, module: "Force PI Approval", description: "RJ approval required if stock is insufficient" },
+  { step: 11, module: "Dispatch Planning", description: "PI link + expected dispatch date entered" },
+  { step: 12, module: "Dispatch Ready", description: "Warehouse confirms dispatch readiness" },
+  { step: 13, module: "Payment Confirmation", description: "Accounts/payment confirmation workflow" },
+  { step: 14, module: "Final Dispatch", description: "Dispatch completed after payment confirmation" },
+  { step: 15, module: "Reports & Tracking", description: "State-wise, dealer-wise and dispatch reports" },
+] as const;
+
+const SERVICE_WORKFLOW_STEPS = [
+  { step: 1, module: "Ticket Raised", description: "Ticket creation through ERP" },
+  { step: 2, module: "Client Complaint", description: "Complaint received via Call / WhatsApp / Link" },
+  { step: 3, module: "ERP Entry", description: "Complaint registered in ERP system" },
+  { step: 4, module: "L1 Support", description: "Basic support with SLA of 2–4 hours" },
+  { step: 5, module: "Initial Actions", description: "Installation support, WiFi setup, demo/export diagnosis" },
+  { step: 6, module: "Tracking", description: "Daily report, feedback collection, time-wise tracking" },
+  { step: 7, module: "L2 Escalation", description: "Escalated to technical team if unresolved" },
+  { step: 8, module: "Technical Diagnosis", description: "Fault analysis, hardware diagnosis, error code verification" },
+  { step: 9, module: "Spare Requirement", description: "System checks if spare is required" },
+  { step: 10, module: "Inventory Check", description: "Warehouse / inventory verification" },
+  { step: 11, module: "Dispatch / Procurement", description: "Dispatch spare or start procurement/replacement" },
+  { step: 12, module: "Site Visit", description: "Engineer visit and repair activity" },
+  { step: 13, module: "L3 Support", description: "Software + China support for critical issues" },
+  { step: 14, module: "Final Resolution", description: "Replacement approval / software update / closure" },
+  { step: 15, module: "Closure", description: "Client feedback and report generation" },
+] as const;
+
+const TICKET_SOURCE_OPTIONS = ["Call", "WhatsApp", "Link", "ERP"] as const;
+const L1_SLA_OPTIONS = ["2 Hours", "4 Hours"] as const;
+const ESCALATION_LEVEL_OPTIONS = ["L1", "L2", "L3"] as const;
+const SPARE_INVENTORY_STATUS_OPTIONS = ["Not Required", "Available", "Procurement Required"] as const;
+
+const APPROVAL_STATUS_OPTIONS = ["Not Required", "Pending", "Approved"] as const;
+const PRICE_CATEGORY_OPTIONS = ["Dealer Price", "Distributor Price"] as const;
+const DISPATCH_STATUS_OPTIONS = ["Planned", "Ready", "Final Dispatch"] as const;
+const PAYMENT_STATUS_OPTIONS = ["Pending", "Confirmed"] as const;
+
+function defaultPiNumber() {
+  return `PI-${new Date().getFullYear()}-XXXX`;
+}
+
+function productLabel(product: Product) {
+  return `${product.series} ${product.model}`.trim();
+}
+
 export function SalesPage() {
   const manufacturedRes = useAsyncData(() => listManufactured({ status: "In Stock" }), []);
   const customersRes = useAsyncData(() => listCustomers({ page: 1, limit: 500 }), []);
   const salesRes = useAsyncData(() => listSales({ page: 1, limit: 50 }), []);
+  const productsRes = useAsyncData(() => listProducts(), []);
 
   const manufacturedBySerial = useMemo(() => {
     const rows = manufacturedRes.data?.data ?? [];
-    return new Map(rows.map((m) => [m.serialNumber, m]));
+    return new Map(rows.map((manufacturedItem) => [manufacturedItem.serialNumber, manufacturedItem]));
   }, [manufacturedRes.data]);
 
+  const productById = useMemo(() => {
+    const rows = productsRes.data ?? [];
+    return new Map(rows.map((productItem) => [productItem.id, productItem]));
+  }, [productsRes.data]);
+
+  const materialOptions = useMemo(() => {
+    return (productsRes.data ?? []).map((productItem) => productLabel(productItem));
+  }, [productsRes.data]);
+
+  const stockByMaterial = useMemo(() => {
+    const stock = new Map<string, number>();
+    (manufacturedRes.data?.data ?? []).forEach((manufacturedItem) => {
+      const productItem = productById.get(manufacturedItem.productId);
+      const label = productItem ? productLabel(productItem) : manufacturedItem.productId;
+      stock.set(label, (stock.get(label) ?? 0) + 1);
+    });
+    return stock;
+  }, [manufacturedRes.data, productById]);
+
+  const customerById = useMemo(() => {
+    const rows = customersRes.data?.data ?? [];
+    return new Map(rows.map((customerItem) => [customerItem.id, customerItem]));
+  }, [customersRes.data]);
+
   const [serialNumber, setSerialNumber] = useState("");
-  const [docType, setDocType] = useState("Tax Invoice");
-  const [referenceNo, setReferenceNo] = useState("INV-2024-XXXX");
+  const [docType, setDocType] = useState("Proforma Invoice");
+  const [referenceNo, setReferenceNo] = useState(defaultPiNumber());
   const [saleDate, setSaleDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [registrationCode, setRegistrationCode] = useState("");
+  const [materialName, setMaterialName] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [stateRegion, setStateRegion] = useState("");
+  const [dealerRegistered, setDealerRegistered] = useState<"Yes" | "No">("Yes");
+  const [rjApprovalStatus, setRjApprovalStatus] = useState<(typeof APPROVAL_STATUS_OPTIONS)[number]>("Not Required");
+  const [forcePiPermission, setForcePiPermission] = useState(false);
+  const [priceCategory, setPriceCategory] = useState<(typeof PRICE_CATEGORY_OPTIONS)[number]>("Distributor Price");
+  const [forcePiApprovalStatus, setForcePiApprovalStatus] = useState<(typeof APPROVAL_STATUS_OPTIONS)[number]>("Not Required");
+  const [expectedDispatchDate, setExpectedDispatchDate] = useState("");
+  const [dispatchStatus, setDispatchStatus] = useState<(typeof DISPATCH_STATUS_OPTIONS)[number]>("Planned");
+  const [paymentStatus, setPaymentStatus] = useState<(typeof PAYMENT_STATUS_OPTIONS)[number]>("Pending");
 
   const [customerId, setCustomerId] = useState("");
-  const [custType, setCustType] = useState<"Individual" | "Distributor" | "">("");
+  const [custType, setCustType] = useState<"Individual" | "Distributor" | "">("Distributor");
   const [custEmail, setCustEmail] = useState("");
   const [custName, setCustName] = useState("");
   const [custPhone, setCustPhone] = useState("");
@@ -2320,18 +2419,42 @@ export function SalesPage() {
   const [formOk, setFormOk] = useState("");
   const [salesModalOpen, setSalesModalOpen] = useState(false);
 
-  const customerById = useMemo(() => {
-    const rows = customersRes.data?.data ?? [];
-    return new Map(rows.map((c) => [c.id, c]));
-  }, [customersRes.data]);
+  const requestedQuantity = Math.max(0, Number(quantity) || 0);
+  const availableQuantity = materialName.trim()
+    ? stockByMaterial.get(materialName.trim()) ?? 0
+    : (manufacturedRes.data?.data ?? []).length;
+  const isStockInsufficient = Boolean(materialName.trim()) && requestedQuantity > availableQuantity;
+  const inventoryStatus = isStockInsufficient ? "Insufficient" : "Available";
+
+  const eligibleSerials = useMemo(() => {
+    const trimmedMaterial = materialName.trim();
+    const rows = manufacturedRes.data?.data ?? [];
+    if (!trimmedMaterial) return rows;
+    return rows.filter((manufacturedItem) => {
+      const productItem = productById.get(manufacturedItem.productId);
+      return productItem ? productLabel(productItem) === trimmedMaterial : manufacturedItem.productId === trimmedMaterial;
+    });
+  }, [manufacturedRes.data, materialName, productById]);
 
   const clearForm = () => {
     setSerialNumber("");
-    setDocType("Tax Invoice");
-    setReferenceNo("INV-2024-XXXX");
+    setDocType("Proforma Invoice");
+    setReferenceNo(defaultPiNumber());
     setSaleDate(new Date().toISOString().slice(0, 10));
+    setRegistrationCode("");
+    setMaterialName("");
+    setQuantity("1");
+    setStateRegion("");
+    setDealerRegistered("Yes");
+    setRjApprovalStatus("Not Required");
+    setForcePiPermission(false);
+    setPriceCategory("Distributor Price");
+    setForcePiApprovalStatus("Not Required");
+    setExpectedDispatchDate("");
+    setDispatchStatus("Planned");
+    setPaymentStatus("Pending");
     setCustomerId("");
-    setCustType("");
+    setCustType("Distributor");
     setCustEmail("");
     setCustName("");
     setCustPhone("");
@@ -2348,15 +2471,37 @@ export function SalesPage() {
     const documentType = docType.trim();
     const reference = referenceNo.trim();
     const date = saleDate.trim();
+    const regCode = registrationCode.trim();
+    const material = materialName.trim();
+    const region = stateRegion.trim();
 
-    if (!serial || !documentType || !reference || !date) {
-      setFormError("Serial number, document type, reference no. and sale date are required.");
+    if (!regCode || !material || !requestedQuantity || !region || !documentType || !reference || !date) {
+      setFormError("Reg Code, Material Name, Quantity, State/Region, PI No. and PI Date are required.");
       return;
     }
 
-    const mfg = manufacturedBySerial.get(serial);
-    if (!mfg) {
-      setFormError("Serial number not found in manufactured products (In Stock).");
+    if (dealerRegistered === "No" && rjApprovalStatus !== "Approved") {
+      setFormError("Non-registered dealer ke liye RJ approval required hai.");
+      return;
+    }
+
+    if (dealerRegistered === "No" && !forcePiPermission) {
+      setFormError("Non-registered case me RJ force PI permission required hai.");
+      return;
+    }
+
+    if (isStockInsufficient && forcePiApprovalStatus !== "Approved") {
+      setFormError("Quantity stock se zyada hai; force PI approval ko Approved karo.");
+      return;
+    }
+
+    if (dispatchStatus === "Final Dispatch" && paymentStatus !== "Confirmed") {
+      setFormError("Final dispatch payment confirmation ke baad hi complete ho sakta hai.");
+      return;
+    }
+
+    if (serial && !manufacturedBySerial.get(serial)) {
+      setFormError("Dispatch serial number in-stock manufactured products me nahi mila.");
       return;
     }
 
@@ -2368,7 +2513,7 @@ export function SalesPage() {
       const type = custType;
       const address = custAddress.trim();
 
-      const existing = (customersRes.data?.data ?? []).find((c) => c.email.toLowerCase() === email);
+      const existing = email ? (customersRes.data?.data ?? []).find((customerItem) => customerItem.email.toLowerCase() === email) : undefined;
       if (existing) {
         resolvedCustomerId = existing.id;
       } else {
@@ -2390,16 +2535,30 @@ export function SalesPage() {
     setSubmitting(true);
     try {
       await createSale({
-        serialNumber: serial,
+        serialNumber: serial || undefined,
         documentType,
         referenceNo: reference,
         saleDate: date,
         customerId: resolvedCustomerId,
+        registrationCode: regCode,
+        materialName: material,
+        quantity: requestedQuantity,
+        stateRegion: region,
+        dealerRegistered: dealerRegistered === "Yes",
+        rjApprovalStatus,
+        forcePiPermission,
+        priceCategory,
+        availableQuantity,
+        inventoryStatus,
+        forcePiApprovalStatus,
+        expectedDispatchDate: expectedDispatchDate || undefined,
+        dispatchStatus,
+        paymentStatus,
       });
-      setFormOk("Sale recorded successfully.");
       manufacturedRes.reload();
       salesRes.reload();
       clearForm();
+      setFormOk("Sales workflow PI recorded successfully.");
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to record sale.");
     } finally {
@@ -2409,11 +2568,37 @@ export function SalesPage() {
 
   return (
     <div>
-      <PageHeader title="Sales Data Entry" sub="Customer and Product Details" />
+      <PageHeader
+        title="ERP Sales Workflow – Distributor / Dealer Flow"
+        sub="Distributor onboarding, RJ approval, PI generation, inventory validation, dispatch planning and payment confirmation."
+      />
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm mb-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Workflow Reference</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Sales module follows the approved 15-step distributor/dealer flow.</p>
+          </div>
+          <Badge color="orange">ERP Sales Flow</Badge>
+        </div>
+        <Table headers={["Step", "Module", "Description"]}>
+          {SALES_WORKFLOW_STEPS.map((stepItem, stepIndex) => (
+            <TR key={stepItem.step} zebra={stepIndex % 2 === 1}>
+              <TD className="font-mono text-xs text-gray-500">{stepItem.step}</TD>
+              <TD className="font-semibold text-gray-900 whitespace-nowrap">{stepItem.module}</TD>
+              <TD className="text-gray-600">{stepItem.description}</TD>
+            </TR>
+          ))}
+        </Table>
+        <div className="mt-4 text-xs text-gray-600">
+          <span className="font-bold text-gray-900">Key ERP Modules:</span> Dealer KYC • Pricing Approval • Force PI Management • Inventory Validation • Dispatch Planning • Payment Workflow • Reporting Dashboard
+        </div>
+      </div>
+
       <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-            <IconShoppingCart size={18} /> New Sales Transaction
+            <IconShoppingCart size={18} /> PI Generation & Dispatch Planning
           </h3>
           <button
             type="button"
@@ -2424,94 +2609,264 @@ export function SalesPage() {
           </button>
         </div>
         <div className="mb-6">
-          <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Transaction Details</div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Dealer Verification & RJ Approval</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Product Serial No.</label>
+              <label className="block text-xs text-gray-500 mb-1">Reg Code</label>
               <input
-                list="sale-serial-options"
-                value={serialNumber}
-                onChange={(e) => setSerialNumber(e.target.value)}
-                placeholder="Search or type serial..."
+                value={registrationCode}
+                onChange={(event) => setRegistrationCode(event.target.value)}
+                placeholder="REG-XXXX"
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
               />
-              <datalist id="sale-serial-options">
-                {(manufacturedRes.data?.data ?? []).map((m) => (
-                  <option key={m.id} value={m.serialNumber} />
-                ))}
-              </datalist>
-              <div className="mt-1 text-[11px] text-gray-400">
-                {manufacturedRes.loading ? "Loading serials…" : `${(manufacturedRes.data?.data ?? []).length} in-stock serials`}
-              </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Document Type</label>
-              <select value={docType} onChange={(e) => setDocType(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
-                <option>Tax Invoice</option>
-                <option>Delivery Challan</option>
-                <option>Proforma Invoice</option>
+              <label className="block text-xs text-gray-500 mb-1">Registered?</label>
+              <select
+                value={dealerRegistered}
+                onChange={(event) => {
+                  const nextValue = event.target.value === "No" ? "No" : "Yes";
+                  setDealerRegistered(nextValue);
+                  setRjApprovalStatus(nextValue === "Yes" ? "Not Required" : "Pending");
+                  setForcePiPermission(false);
+                }}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                <option>Yes</option>
+                <option>No</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Reference No.</label>
+              <label className="block text-xs text-gray-500 mb-1">RJ Approval</label>
+              <select
+                value={rjApprovalStatus}
+                onChange={(event) => setRjApprovalStatus(event.target.value as (typeof APPROVAL_STATUS_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {APPROVAL_STATUS_OPTIONS.map((optionItem) => <option key={optionItem}>{optionItem}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Force PI Permission</label>
+              <button
+                type="button"
+                onClick={() => setForcePiPermission((current) => !current)}
+                className={`w-full px-3 py-2 rounded-lg border text-sm font-semibold transition ${
+                  forcePiPermission
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                    : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                }`}
+              >
+                {forcePiPermission ? "Approved by RJ" : "Not Approved"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Pricing, PI Generation & Required Inputs</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Price Category</label>
+              <select
+                value={priceCategory}
+                onChange={(event) => setPriceCategory(event.target.value as (typeof PRICE_CATEGORY_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {PRICE_CATEGORY_OPTIONS.map((optionItem) => <option key={optionItem}>{optionItem}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Document Type</label>
+              <select value={docType} onChange={(event) => setDocType(event.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100">
+                <option>Proforma Invoice</option>
+                <option>Tax Invoice</option>
+                <option>Delivery Challan</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">PI / Reference No.</label>
               <input
                 value={referenceNo}
-                onChange={(e) => setReferenceNo(e.target.value)}
+                onChange={(event) => setReferenceNo(event.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Sales Date</label>
+              <label className="block text-xs text-gray-500 mb-1">PI Date</label>
               <input
                 type="date"
                 value={saleDate}
-                onChange={(e) => setSaleDate(e.target.value)}
+                onChange={(event) => setSaleDate(event.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
               />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Material Name</label>
+              <input
+                list="sale-material-options"
+                value={materialName}
+                onChange={(event) => setMaterialName(event.target.value)}
+                placeholder="Search material..."
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+              <datalist id="sale-material-options">
+                {materialOptions.map((optionItem) => (
+                  <option key={optionItem} value={optionItem} />
+                ))}
+              </datalist>
+              <div className="mt-1 text-[11px] text-gray-400">
+                {productsRes.loading ? "Loading materials…" : `${materialOptions.length} material options`}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+              <input
+                type="number"
+                min="1"
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">State / Region</label>
+              <input
+                value={stateRegion}
+                onChange={(event) => setStateRegion(event.target.value)}
+                placeholder="Rajasthan / North"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Inventory Check</label>
+              <div className="w-full px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 text-sm flex items-center justify-between">
+                <span className="text-gray-600">Available: <span className="font-mono font-semibold">{availableQuantity}</span></span>
+                <Badge color={isStockInsufficient ? "red" : "green"}>{inventoryStatus}</Badge>
+              </div>
+            </div>
+          </div>
+          {isStockInsufficient && (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              Popup alert: requested quantity available stock se zyada hai. Force PI approval required.
+            </div>
+          )}
+        </div>
+
+        <div className="mb-6">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Dispatch Planning & Payment Confirmation</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Force PI Approval</label>
+              <select
+                value={forcePiApprovalStatus}
+                onChange={(event) => setForcePiApprovalStatus(event.target.value as (typeof APPROVAL_STATUS_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {APPROVAL_STATUS_OPTIONS.map((optionItem) => <option key={optionItem}>{optionItem}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Expected Dispatch Date</label>
+              <input
+                type="date"
+                value={expectedDispatchDate}
+                onChange={(event) => setExpectedDispatchDate(event.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Dispatch Status</label>
+              <select
+                value={dispatchStatus}
+                onChange={(event) => setDispatchStatus(event.target.value as (typeof DISPATCH_STATUS_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {DISPATCH_STATUS_OPTIONS.map((optionItem) => <option key={optionItem}>{optionItem}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Payment Confirmation</label>
+              <select
+                value={paymentStatus}
+                onChange={(event) => setPaymentStatus(event.target.value as (typeof PAYMENT_STATUS_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {PAYMENT_STATUS_OPTIONS.map((optionItem) => <option key={optionItem}>{optionItem}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Optional Dispatch Serial</label>
+              <input
+                list="sale-serial-options"
+                value={serialNumber}
+                onChange={(event) => setSerialNumber(event.target.value)}
+                placeholder="Warehouse serial, if ready"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
+              />
+              <datalist id="sale-serial-options">
+                {eligibleSerials.map((manufacturedItem) => (
+                  <option key={manufacturedItem.id} value={manufacturedItem.serialNumber} />
+                ))}
+              </datalist>
+              <div className="mt-1 text-[11px] text-gray-400">
+                {manufacturedRes.loading ? "Loading serials…" : `${eligibleSerials.length} matching in-stock serials`}
+              </div>
+            </div>
+            <div className="xl:col-span-3">
+              <div className="h-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+                <div className="font-semibold text-gray-900 mb-1">Workflow Guardrails</div>
+                <div>Non-registered dealer → RJ approval + force PI permission.</div>
+                <div>Insufficient stock → force PI approval before PI save.</div>
+                <div>Final dispatch → payment must be confirmed.</div>
+              </div>
             </div>
           </div>
         </div>
         <div>
           <div className="flex items-center justify-between mb-3">
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Customer Information</div>
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Dealer / Distributor Details</div>
+            <div className="text-[11px] text-gray-400">Used when selected dealer is not already registered.</div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Customer (existing)</label>
+              <label className="block text-xs text-gray-500 mb-1">Dealer/Distributor (existing)</label>
               <select
                 value={customerId}
-                onChange={(e) => {
-                  const nextId = e.target.value;
+                onChange={(event) => {
+                  const nextId = event.target.value;
                   setCustomerId(nextId);
                   setFormError("");
                   setFormOk("");
                   if (!nextId) return;
-                  const c = customerById.get(nextId);
-                  if (!c) return;
-                  setCustType(c.type === "Distributor" || c.type === "Individual" ? c.type : "");
-                  setCustEmail(c.email || "");
-                  setCustName(c.name || "");
-                  setCustPhone(c.phone || "");
-                  setCustAddress(c.address || "");
+                  const customerItem = customerById.get(nextId);
+                  if (!customerItem) return;
+                  setCustType(customerItem.type === "Distributor" || customerItem.type === "Individual" ? customerItem.type : "");
+                  setCustEmail(customerItem.email || "");
+                  setCustName(customerItem.name || "");
+                  setCustPhone(customerItem.phone || "");
+                  setCustAddress(customerItem.address || "");
+                  setDealerRegistered("Yes");
+                  setRjApprovalStatus("Not Required");
                 }}
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
               >
-                <option value="">Select customer…</option>
-                {(customersRes.data?.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.email})
+                <option value="">Select or create below…</option>
+                {(customersRes.data?.data ?? []).map((customerItem) => (
+                  <option key={customerItem.id} value={customerItem.id}>
+                    {customerItem.name} ({customerItem.email})
                   </option>
                 ))}
               </select>
               <div className="mt-1 text-[11px] text-gray-400">
-                Leave empty to create a new customer from the fields below.
+                Leave empty to create a new dealer/distributor from the fields below.
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Customer Email</label>
+              <label className="block text-xs text-gray-500 mb-1">Dealer Email</label>
               <input
                 value={custEmail}
-                onChange={(e) => setCustEmail(e.target.value)}
+                onChange={(event) => setCustEmail(event.target.value)}
                 placeholder="email@example.com"
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
               />
@@ -2519,11 +2874,11 @@ export function SalesPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Customer Name</label>
+              <label className="block text-xs text-gray-500 mb-1">Dealer Name</label>
               <input
                 value={custName}
-                onChange={(e) => setCustName(e.target.value)}
-                placeholder="Full Name"
+                onChange={(event) => setCustName(event.target.value)}
+                placeholder="Dealer / Distributor name"
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
               />
             </div>
@@ -2531,7 +2886,7 @@ export function SalesPage() {
               <label className="block text-xs text-gray-500 mb-1">Contact Number</label>
               <input
                 value={custPhone}
-                onChange={(e) => setCustPhone(e.target.value)}
+                onChange={(event) => setCustPhone(event.target.value)}
                 placeholder="+91 XXXXX XXXXX"
                 className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
               />
@@ -2542,28 +2897,28 @@ export function SalesPage() {
             <textarea
               rows={3}
               value={custAddress}
-              onChange={(e) => setCustAddress(e.target.value)}
+              onChange={(event) => setCustAddress(event.target.value)}
               className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none"
             />
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Customer Type</label>
+            <label className="block text-xs text-gray-500 mb-1">Dealer Type</label>
             <select
               value={custType}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCustType(v === "Individual" || v === "Distributor" ? v : "");
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setCustType(nextValue === "Individual" || nextValue === "Distributor" ? nextValue : "");
               }}
               className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
             >
               <option value="">Select Type...</option>
-              <option>Individual</option>
               <option>Distributor</option>
+              <option>Individual</option>
             </select>
             <div className="mt-1 text-[11px] text-gray-400">
-              Used only when creating a new customer.
+              Used only when creating a new dealer/distributor.
             </div>
           </div>
           <div className="flex items-end">
@@ -2587,14 +2942,14 @@ export function SalesPage() {
             Clear Form
           </button>
           <PrimaryBtn onClick={handleSubmit}>
-            {submitting ? "Recording..." : "Confirm & Record Sale"}
+            {submitting ? "Recording..." : "Generate PI & Save Workflow"}
           </PrimaryBtn>
         </div>
       </div>
 
       {salesModalOpen && (
         <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-4xl rounded-2xl bg-white border border-gray-200 shadow-2xl">
+          <div className="w-full max-w-6xl rounded-2xl bg-white border border-gray-200 shadow-2xl">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <div className="text-lg font-bold text-gray-900">Sales Data</div>
@@ -2609,29 +2964,35 @@ export function SalesPage() {
               </button>
             </div>
             <div className="px-6 py-5">
-              <Table headers={["#", "Serial", "Doc Type", "Ref No.", "Sale Date", "Customer"]}>
+              <Table headers={["#", "PI No.", "Reg Code", "Material", "Qty", "Inventory", "Dispatch", "Payment", "Dealer"]}>
                 {salesRes.loading ? (
                   <TR>
-                    <TD colSpan={6} className="text-center text-gray-400 py-10">Loading…</TD>
+                    <TD colSpan={9} className="text-center text-gray-400 py-10">Loading…</TD>
                   </TR>
                 ) : salesRes.error ? (
                   <TR>
-                    <TD colSpan={6} className="text-center text-red-500 py-10">{salesRes.error}</TD>
+                    <TD colSpan={9} className="text-center text-red-500 py-10">{salesRes.error}</TD>
                   </TR>
                 ) : (salesRes.data?.data ?? []).length === 0 ? (
                   <TR>
-                    <TD colSpan={6} className="text-center text-gray-400 py-10">No sales found.</TD>
+                    <TD colSpan={9} className="text-center text-gray-400 py-10">No sales found.</TD>
                   </TR>
                 ) : (
-                  (salesRes.data?.data ?? []).map((s, i) => (
-                    <TR key={s.id} zebra={i % 2 === 1}>
-                      <TD className="text-gray-400">{i + 1}</TD>
-                      <TD className="font-mono text-xs text-gray-800">{s.serialNumber}</TD>
-                      <TD><Badge color="blue">{s.documentType}</Badge></TD>
-                      <TD className="font-mono text-xs text-gray-700">{s.referenceNo}</TD>
-                      <TD className="text-gray-500 text-xs whitespace-nowrap">{new Date(s.saleDate).toLocaleDateString()}</TD>
+                  (salesRes.data?.data ?? []).map((saleItem, saleIndex) => (
+                    <TR key={saleItem.id} zebra={saleIndex % 2 === 1}>
+                      <TD className="text-gray-400">{saleIndex + 1}</TD>
+                      <TD>
+                        <div className="font-mono text-xs text-gray-800">{saleItem.referenceNo}</div>
+                        <div className="text-[10px] text-gray-400">{new Date(saleItem.saleDate).toLocaleDateString()}</div>
+                      </TD>
+                      <TD className="font-mono text-xs text-gray-700">{saleItem.registrationCode ?? "—"}</TD>
+                      <TD className="text-gray-700 text-sm">{saleItem.materialName ?? saleItem.serialNumber ?? "—"}</TD>
+                      <TD className="font-mono text-xs text-gray-700">{saleItem.quantity ?? "—"}</TD>
+                      <TD><Badge color={saleItem.inventoryStatus === "Insufficient" ? "red" : "green"}>{saleItem.inventoryStatus ?? "Available"}</Badge></TD>
+                      <TD><Badge color={saleItem.dispatchStatus === "Final Dispatch" ? "green" : saleItem.dispatchStatus === "Ready" ? "blue" : "yellow"}>{saleItem.dispatchStatus ?? "Planned"}</Badge></TD>
+                      <TD><Badge color={saleItem.paymentStatus === "Confirmed" ? "green" : "yellow"}>{saleItem.paymentStatus ?? "Pending"}</Badge></TD>
                       <TD className="text-gray-700 text-sm">
-                        {customerById.get(s.customerId)?.name ?? s.customerId}
+                        {customerById.get(saleItem.customerId)?.name ?? saleItem.customerId}
                       </TD>
                     </TR>
                   ))
@@ -2668,15 +3029,35 @@ export function ComplaintsConsumerPage() {
   const productsRes = useAsyncData(() => listProducts({}), []);
   const complaintsRes = useAsyncData(() => listComplaints({ type: "Consumer" }), []);
 
-  const productByModel = useMemo(() => {
+  const productLookup = useMemo(() => {
     const products = productsRes.data ?? [];
-    return new Map(products.map((p) => [p.model, p]));
+    const map = new Map<string, Product>();
+    products.forEach((productItem) => {
+      map.set(productItem.id, productItem);
+      map.set(productItem.model, productItem);
+    });
+    return map;
   }, [productsRes.data]);
 
   const [serialNumber, setSerialNumber] = useState("");
   const [dateOfSale, setDateOfSale] = useState("");
   const [dateOfComplaint, setDateOfComplaint] = useState(() => new Date().toISOString().slice(0, 10));
   const [issueDescription, setIssueDescription] = useState("");
+  const [ticketSource, setTicketSource] = useState<(typeof TICKET_SOURCE_OPTIONS)[number]>("ERP");
+  const [l1Sla, setL1Sla] = useState<(typeof L1_SLA_OPTIONS)[number]>("4 Hours");
+  const [initialAction, setInitialAction] = useState("Installation support / WiFi setup / demo-export diagnosis");
+  const [trackingNotes, setTrackingNotes] = useState("");
+  const [escalationLevel, setEscalationLevel] = useState<(typeof ESCALATION_LEVEL_OPTIONS)[number]>("L1");
+  const [technicalDiagnosis, setTechnicalDiagnosis] = useState("");
+  const [spareRequired, setSpareRequired] = useState(false);
+  const [spareName, setSpareName] = useState("");
+  const [spareInventoryStatus, setSpareInventoryStatus] = useState<(typeof SPARE_INVENTORY_STATUS_OPTIONS)[number]>("Not Required");
+  const [dispatchPlan, setDispatchPlan] = useState("");
+  const [siteVisitRequired, setSiteVisitRequired] = useState(false);
+  const [engineerName, setEngineerName] = useState("");
+  const [l3SupportRequired, setL3SupportRequired] = useState(false);
+  const [finalResolution, setFinalResolution] = useState("");
+  const [clientFeedback, setClientFeedback] = useState("");
   const [formError, setFormError] = useState("");
   const [formOk, setFormOk] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -2687,8 +3068,9 @@ export function ComplaintsConsumerPage() {
     return rows.find((m) => m.serialNumber === serialNumber) ?? null;
   }, [manufacturedRes.data, serialNumber]);
 
-  const autoModel = selectedManufactured?.productId ?? "";
-  const autoType = productByModel.get(autoModel)?.series ?? "";
+  const selectedProduct = selectedManufactured ? productLookup.get(selectedManufactured.productId) : null;
+  const autoModel = selectedProduct?.model ?? selectedManufactured?.productId ?? "";
+  const autoType = selectedProduct?.series ?? "";
 
   const complaintStatusBadge = (status: string) => {
     if (status === "Open at Aurawatt") return <Badge color="red">{status}</Badge>;
@@ -2704,6 +3086,21 @@ export function ComplaintsConsumerPage() {
     setDateOfSale("");
     setDateOfComplaint(new Date().toISOString().slice(0, 10));
     setIssueDescription("");
+    setTicketSource("ERP");
+    setL1Sla("4 Hours");
+    setInitialAction("Installation support / WiFi setup / demo-export diagnosis");
+    setTrackingNotes("");
+    setEscalationLevel("L1");
+    setTechnicalDiagnosis("");
+    setSpareRequired(false);
+    setSpareName("");
+    setSpareInventoryStatus("Not Required");
+    setDispatchPlan("");
+    setSiteVisitRequired(false);
+    setEngineerName("");
+    setL3SupportRequired(false);
+    setFinalResolution("");
+    setClientFeedback("");
     setFormError("");
     setFormOk("");
   };
@@ -2753,6 +3150,22 @@ export function ComplaintsConsumerPage() {
         dateOfSale: saleDate || undefined,
         dateOfComplaint: complaintDate,
         issueDescription: description,
+        ticketSource,
+        l1Sla,
+        initialAction: initialAction.trim() || undefined,
+        trackingNotes: trackingNotes.trim() || undefined,
+        escalationLevel,
+        technicalDiagnosis: technicalDiagnosis.trim() || undefined,
+        spareRequired,
+        spareName: spareRequired ? spareName.trim() || undefined : undefined,
+        spareInventoryStatus,
+        dispatchPlan: dispatchPlan.trim() || undefined,
+        siteVisitRequired,
+        engineerName: siteVisitRequired ? engineerName.trim() || undefined : undefined,
+        l3SupportRequired,
+        finalResolution: finalResolution.trim() || undefined,
+        clientFeedback: clientFeedback.trim() || undefined,
+        closureReport: clientFeedback.trim() ? "Client feedback captured; report generation pending." : undefined,
       });
       setFormOk("Complaint raised successfully.");
       complaintsRes.reload();
@@ -2766,10 +3179,36 @@ export function ComplaintsConsumerPage() {
 
   return (
     <div>
-      <PageHeader title="Complaints: Consumer" sub="Warranty Claims — After Sales Service" />
+      <PageHeader
+        title="ERP Service Workflow"
+        sub="Ticket management, escalation handling, spare management, technical support and final resolution lifecycle."
+      />
+
+      <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm mb-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Workflow Reference</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Service module follows the approved 15-step ticket lifecycle.</p>
+          </div>
+          <Badge color="yellow">ERP Service Flow</Badge>
+        </div>
+        <Table headers={["Step", "Module", "Description"]}>
+          {SERVICE_WORKFLOW_STEPS.map((stepItem, stepIndex) => (
+            <TR key={stepItem.step} zebra={stepIndex % 2 === 1}>
+              <TD className="font-mono text-xs text-gray-500">{stepItem.step}</TD>
+              <TD className="font-semibold text-gray-900 whitespace-nowrap">{stepItem.module}</TD>
+              <TD className="text-gray-600">{stepItem.description}</TD>
+            </TR>
+          ))}
+        </Table>
+        <div className="mt-4 text-xs text-gray-600">
+          <span className="font-bold text-gray-900">Total Service Commitment:</span> 48 Hours | <span className="font-bold text-gray-900">L1 SLA:</span> 2–4 Hours | <span className="font-bold text-gray-900">L2/L3:</span> Advanced escalation handling
+        </div>
+      </div>
+
       <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-base font-semibold text-gray-900">Warranty Claims: After Sales Service</h3>
+          <h3 className="text-base font-semibold text-gray-900">Ticket Creation & Service Tracking</h3>
           <button
             type="button"
             onClick={() => setListOpen(true)}
@@ -2843,6 +3282,167 @@ export function ComplaintsConsumerPage() {
             />
           </div>
         </div>
+
+        <div className="mb-6">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Ticket Intake & L1 Support</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Ticket Source</label>
+              <select
+                value={ticketSource}
+                onChange={(e) => setTicketSource(e.target.value as (typeof TICKET_SOURCE_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {TICKET_SOURCE_OPTIONS.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">L1 SLA</label>
+              <select
+                value={l1Sla}
+                onChange={(e) => setL1Sla(e.target.value as (typeof L1_SLA_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {L1_SLA_OPTIONS.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Escalation Level</label>
+              <select
+                value={escalationLevel}
+                onChange={(e) => setEscalationLevel(e.target.value as (typeof ESCALATION_LEVEL_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {ESCALATION_LEVEL_OPTIONS.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={siteVisitRequired}
+                onChange={(e) => setSiteVisitRequired(e.target.checked)}
+                className="accent-amber-500"
+              />
+              Site visit required
+            </label>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Initial Actions</label>
+              <input
+                value={initialAction}
+                onChange={(e) => setInitialAction(e.target.value)}
+                placeholder="Installation support, WiFi setup, demo/export diagnosis"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Daily Tracking Notes</label>
+              <input
+                value={trackingNotes}
+                onChange={(e) => setTrackingNotes(e.target.value)}
+                placeholder="Daily report, feedback, time-wise tracking"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Diagnosis, Spare & Closure</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Technical Diagnosis</label>
+              <input
+                value={technicalDiagnosis}
+                onChange={(e) => setTechnicalDiagnosis(e.target.value)}
+                placeholder="Fault analysis, hardware diagnosis, error code verification"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={spareRequired}
+                onChange={(e) => setSpareRequired(e.target.checked)}
+                className="accent-amber-500"
+              />
+              Spare required
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={l3SupportRequired}
+                onChange={(e) => setL3SupportRequired(e.target.checked)}
+                className="accent-amber-500"
+              />
+              L3 support required
+            </label>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Spare Name</label>
+              <input
+                value={spareName}
+                onChange={(e) => setSpareName(e.target.value)}
+                disabled={!spareRequired}
+                placeholder="If required"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Inventory Status</label>
+              <select
+                value={spareInventoryStatus}
+                onChange={(e) => setSpareInventoryStatus(e.target.value as (typeof SPARE_INVENTORY_STATUS_OPTIONS)[number])}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              >
+                {SPARE_INVENTORY_STATUS_OPTIONS.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Engineer Name</label>
+              <input
+                value={engineerName}
+                onChange={(e) => setEngineerName(e.target.value)}
+                disabled={!siteVisitRequired}
+                placeholder="For site visit"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Dispatch / Procurement</label>
+              <input
+                value={dispatchPlan}
+                onChange={(e) => setDispatchPlan(e.target.value)}
+                placeholder="Dispatch spare or procurement plan"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Final Resolution</label>
+              <input
+                value={finalResolution}
+                onChange={(e) => setFinalResolution(e.target.value)}
+                placeholder="Replacement approval / software update / closure"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Client Feedback</label>
+              <input
+                value={clientFeedback}
+                onChange={(e) => setClientFeedback(e.target.value)}
+                placeholder="Feedback and closure report notes"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+            </div>
+          </div>
+        </div>
         {formError ? (
           <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             {formError}
@@ -2883,24 +3483,27 @@ export function ComplaintsConsumerPage() {
               </button>
             </div>
             <div className="px-6 py-5">
-              <Table headers={["#", "Serial", "Date", "Issue", "Status", "Action"]}>
+              <Table headers={["#", "Serial", "Source", "SLA", "Escalation", "Date", "Issue", "Status", "Action"]}>
                 {complaintsRes.loading ? (
                   <TR>
-                    <TD colSpan={6} className="text-center text-gray-400 py-10">Loading…</TD>
+                    <TD colSpan={9} className="text-center text-gray-400 py-10">Loading…</TD>
                   </TR>
                 ) : complaintsRes.error ? (
                   <TR>
-                    <TD colSpan={6} className="text-center text-red-500 py-10">{complaintsRes.error}</TD>
+                    <TD colSpan={9} className="text-center text-red-500 py-10">{complaintsRes.error}</TD>
                   </TR>
                 ) : (complaintsRes.data?.data ?? []).length === 0 ? (
                   <TR>
-                    <TD colSpan={6} className="text-center text-gray-400 py-10">No complaints found.</TD>
+                    <TD colSpan={9} className="text-center text-gray-400 py-10">No complaints found.</TD>
                   </TR>
                 ) : (
                   (complaintsRes.data?.data ?? []).map((c, i) => (
                     <TR key={c.id} zebra={i % 2 === 1}>
                       <TD className="text-gray-400">{i + 1}</TD>
                       <TD className="font-mono text-xs text-gray-800">{c.productSerialNo || "—"}</TD>
+                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.ticketSource || "ERP"}</TD>
+                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.l1Sla || "2–4 Hours"}</TD>
+                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.escalationLevel || "L1"}</TD>
                       <TD className="text-gray-500 text-xs whitespace-nowrap">
                         {new Date(c.dateOfComplaint).toLocaleDateString()}
                       </TD>

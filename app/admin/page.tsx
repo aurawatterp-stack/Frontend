@@ -15,6 +15,7 @@ export default function AurawattIMS() {
   useEffect(() => {
     const token = getAuthToken();
     if (!token) {
+      setBooting(false);
       return;
     }
 
@@ -30,6 +31,21 @@ export default function AurawattIMS() {
       })
       .finally(() => setBooting(false));
   }, []);
+
+  useEffect(() => {
+    if (screen === "dashboard") return;
+
+    window.scrollTo({ top: 0, left: 0 });
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+    };
+  }, [screen]);
 
   useEffect(() => {
     if (screen !== "dashboard") return;
@@ -70,10 +86,18 @@ export default function AurawattIMS() {
   if (booting) return null;
 
   if (screen === "login") {
-    return <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} />;
+    return (
+      <div className="fixed inset-0 z-[9999] overflow-hidden bg-[#0f1629]">
+        <LoginScreen onLogin={handleLogin} onGoRegister={() => setScreen("register")} />
+      </div>
+    );
   }
   if (screen === "register") {
-    return <RegisterScreen onGoLogin={() => setScreen("login")} />;
+    return (
+      <div className="fixed inset-0 z-[9999] overflow-hidden bg-[#0f1629]">
+        <RegisterScreen onGoLogin={() => setScreen("login")} />
+      </div>
+    );
   }
   return <IMSDashboard user={currentUser} onLogout={handleLogout} />;
 }
