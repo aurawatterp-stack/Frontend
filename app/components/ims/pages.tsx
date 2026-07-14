@@ -14338,6 +14338,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const isWaitingLobbyComplaint = (complaint?: Complaint | null) => Boolean(complaint && complaint.assignmentStatus === "Waiting" && complaint.status === "Waiting Lobby");
   const isActiveComplaintStatus = (status: string) => !closedComplaintStatuses.includes(status);
   const normalizeComplaintSerial = (serial?: string) => serial?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  const normalizeAssignmentText = (value?: string) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  const isAssignedToCurrentEngineer = (complaint: Complaint) => {
+    const currentUserName = normalizeAssignmentText(currentUser?.name);
+    return (
+      complaint.assignedEngineerId === currentUser?.id ||
+      (Boolean(currentUserName) && normalizeAssignmentText(complaint.assignedEngineerName) === currentUserName)
+    );
+  };
 
   useEffect(() => {
     if (district && !districtOptions.includes(district)) {
@@ -14392,7 +14400,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
     if (currentServiceAssignmentRole === "L1 Engineer") {
       return sortedRows.filter((complaint) => (
-        l1ComplaintStatuses.includes(complaint.status) ||
+        (l1ComplaintStatuses.includes(complaint.status) && isAssignedToCurrentEngineer(complaint)) ||
         isOnsiteAssignedToCurrentUser(complaint)
       ));
     }

@@ -399,8 +399,9 @@ export default function SupportClient() {
             {step === "done" && (
               <div className="py-8 text-center">
                 <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl">✓</div>
-                <h2 className="text-2xl font-black">Complaint Registered</h2>
-                <p className="mt-2 text-sm text-gray-500">Your complaint request has been sent to Aurawatt Admin/Sales team.</p>
+                <h2 className="text-2xl font-black">Complaint Registered Successfully</h2>
+                <p className="mt-2 text-sm text-gray-500">Thank you for contacting Aurawatt Support.</p>
+                <p className="mt-2 text-sm text-gray-500">Your request has been assigned to our service team. The assigned engineer will contact you soon.</p>
                 <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left text-sm">
                   <div className="flex justify-between gap-4">
                     <span className="text-gray-500">Ticket ID</span>
@@ -411,6 +412,7 @@ export default function SupportClient() {
                     <span className="font-bold text-amber-700">{ticket?.status}</span>
                   </div>
                 </div>
+                <p className="mt-4 text-sm text-gray-500">Keep your Ticket ID handy to track your complaint.</p>
                 <button
                   type="button"
                   onClick={() => {
