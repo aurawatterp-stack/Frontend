@@ -14339,6 +14339,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const isActiveComplaintStatus = (status: string) => !closedComplaintStatuses.includes(status);
   const normalizeComplaintSerial = (serial?: string) => serial?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
   const normalizeAssignmentText = (value?: string) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  const isL1ServiceUser = currentRole === "L1 Engineer" || currentRole === "L1 Backup Engineer";
   const isAssignedToCurrentEngineer = (complaint: Complaint) => {
     const currentUserName = normalizeAssignmentText(currentUser?.name);
     return (
@@ -14371,9 +14372,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const autoProductDetails = intakeSerialInfo?.productDetails || selectedProduct?.modelDescription || selectedProduct?.productDescription || selectedProduct?.description || "";
   const isOnsiteAssignedToCurrentUser = (complaint: Complaint) => (
     complaint.siteVisitRequired === true &&
+    complaint.status === "Assigned for Onsite" &&
     (
       complaint.siteVisitEngineerId === currentUser?.id ||
-      (Boolean(currentUser?.name) && complaint.engineerName === currentUser?.name)
+      (Boolean(currentUser?.name) && (complaint.siteVisitEngineerName === currentUser?.name || complaint.engineerName === currentUser?.name))
     )
   );
   const complaintRows = useMemo(() => {
@@ -15553,6 +15555,48 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       complaintsRes.reload();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save onsite inspection.");
+    } finally {
+      setServiceActionId("");
+    }
+  };
+
+  const sendOnsiteProgressToL2 = async () => {
+    if (!selectedComplaint) {
+      setFormError("Please select an active onsite ticket from the queue.");
+      return;
+    }
+
+    const onsitePayload = currentOnsiteInspectionPayload();
+    const observationNotes = onsitePayload.observationNotes?.trim() ?? "";
+    if (!observationNotes) {
+      setFormError("Add onsite observation before sending progress to L2.");
+      return;
+    }
+
+    setServiceActionId(selectedComplaint.id);
+    setFormError("");
+    setFormOk("");
+
+    const actor = currentUser?.name || currentUser?.email || currentRole || "Onsite Engineer";
+    const actorRole = currentRole || "Onsite Engineer";
+    const sentAt = new Date();
+    const progressNote = `Updates done by ${actor}; onsite progress sent to L2 at ${sentAt.toLocaleString()}. Observation: ${observationNotes}`;
+
+    try {
+      await updateComplaintService(selectedComplaint.id, {
+        returnOnsiteProgressToL2: true,
+        onsiteProgressReturnNote: progressNote,
+        productSerialNo: onsitePayload.serialNumber?.trim() || selectedComplaint.productSerialNo || undefined,
+        productModel: onsitePayload.inverterModel?.trim() || selectedComplaint.productModel || onsiteSerialInfo?.model || undefined,
+        onsiteInspection: onsitePayload,
+        progressUpdates: appendProgressUpdate(selectedComplaint, progressNote, actor, actorRole, sentAt),
+        trackingNotes: appendTrackingNote(progressNote),
+      });
+      setFormOk("Updates done. Progress has been sent back to L2 for review and closure.");
+      setSelectedComplaintId("");
+      complaintsRes.reload();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to send onsite progress to L2.");
     } finally {
       setServiceActionId("");
     }
@@ -16979,22 +17023,35 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 >
                   {serviceActionId === selectedComplaint?.id ? "Updating..." : "Update Onsite Form"}
                 </button>
-                <button
-                  type="button"
-                  onClick={openOnsiteEscalationModal}
-                  disabled={!selectedComplaint || serviceActionId === selectedComplaint?.id}
-                  className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Escalate to L3
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openCloseRemarkModal({ kind: "onsite" })}
-                  disabled={!selectedComplaint || closedComplaintStatuses.includes(selectedComplaint.status) || serviceActionId === selectedComplaint?.id}
-                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Close Ticket
-                </button>
+                {isL1ServiceUser ? (
+                  <button
+                    type="button"
+                    onClick={sendOnsiteProgressToL2}
+                    disabled={!selectedComplaint || selectedComplaint.status !== "Assigned for Onsite" || serviceActionId === selectedComplaint?.id}
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {serviceActionId === selectedComplaint?.id ? "Sending..." : "Updates done, progress sent to L2"}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={openOnsiteEscalationModal}
+                      disabled={!selectedComplaint || serviceActionId === selectedComplaint?.id}
+                      className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Escalate to L3
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openCloseRemarkModal({ kind: "onsite" })}
+                      disabled={!selectedComplaint || closedComplaintStatuses.includes(selectedComplaint.status) || serviceActionId === selectedComplaint?.id}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Close Ticket
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

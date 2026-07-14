@@ -1349,6 +1349,8 @@ export async function updateComplaintService(id: string, input: Partial<Complain
   assignToEngineerId?: string;
   assignToRole?: string;
   sendReplacementRequest?: boolean;
+  returnOnsiteProgressToL2?: boolean;
+  onsiteProgressReturnNote?: string;
 }) {
   return apiPut<Complaint>(`/api/complaints/${id}/service`, input);
 }
