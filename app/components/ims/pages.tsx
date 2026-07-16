@@ -8153,7 +8153,7 @@ const DISPATCH_TRACKING_STATUSES = ["Spare Requested", "Replacement Requested", 
 
 function serviceStagesForPermissions(permissions: string[], role?: string): ServiceStageId[] {
   const perms = new Set(permissions);
-  if (role === "Admin") return ["intake", "l1", "onsite", "l2", "warehouse", "accounts", "l3", "closed"];
+  if (role === "Admin") return ["intake", "l1", "onsite", "l2", "l3", "closed"];
   if (role === "L1 Engineer" || role === "L1 Backup Engineer") {
     return ["intake", "l1", "onsite", "closed"];
   }
@@ -14251,7 +14251,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [listOpen, setListOpen] = useState(false);
   const [complaintListSearch, setComplaintListSearch] = useState("");
   const [complaintListPage, setComplaintListPage] = useState(1);
-  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "onsite" | "dispatch" | "team" | "l1backup">("active");
+  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress">("active");
   const [reassignComplaintId, setReassignComplaintId] = useState("");
   const [reassignTargetRole, setReassignTargetRole] = useState<ServiceAssignmentRole>("L1 Engineer");
   const [reassignTargetEngineerId, setReassignTargetEngineerId] = useState("");
@@ -14397,7 +14397,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
     const sortedRows = [...(complaintsRes.data?.data ?? [])].sort((a, b) => (
       rankStatus(a.status) - rankStatus(b.status) ||
-      new Date(b.dateOfComplaint).getTime() - new Date(a.dateOfComplaint).getTime()
+      new Date(b.createdAt || b.dateOfComplaint).getTime() - new Date(a.createdAt || a.dateOfComplaint).getTime()
     ));
 
     if (currentServiceAssignmentRole === "L1 Engineer") {
@@ -14444,6 +14444,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   )), [complaintRows]);
   const l1BackupRows = useMemo(() => complaintRows.filter((complaint) => complaint.assignmentType === "Backup L1"), [complaintRows]);
   const dispatchTrackingRows = useMemo(() => complaintRows.filter(isDispatchTrackingComplaint), [complaintRows]);
+  const adminWaitingRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Waiting Lobby"), [complaintRows]);
+  const adminAssignedRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Assigned to Engineer"), [complaintRows]);
+  const adminInProgressRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "In Progress at Aurawatt"), [complaintRows]);
   const l2TeamNames = useMemo(() => new Set((myL1TeamRes.data ?? []).map((engineer) => engineer.name)), [myL1TeamRes.data]);
   const teamTicketRows = useMemo(() => {
     if (currentRole === "L3 Advanced OEM Support") {
@@ -14462,6 +14465,12 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     l1WaitingRows.slice(0, Math.max(0, 5 - l1ActiveRows.length)).map((complaint) => complaint.id)
   ), [l1WaitingRows, l1ActiveRows.length]);
   const visibleComplaintRows = useMemo(() => {
+    if (isServiceAdmin) {
+      if (complaintListTab === "waiting") return adminWaitingRows;
+      if (complaintListTab === "assigned") return adminAssignedRows;
+      if (complaintListTab === "inprogress") return adminInProgressRows;
+      return complaintRows;
+    }
     if (!isServiceEngineerRole) return complaintRows;
     if (complaintListTab === "waiting") {
       return l1WaitingRows.slice(l1PromotedRowIds.size, l1PromotedRowIds.size + 5);
@@ -14483,7 +14492,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       return [...activeRows, ...l1WaitingRows.slice(0, 5 - activeRows.length)];
     }
     return activeRows;
-  }, [complaintListTab, complaintRows, isServiceEngineerRole, l1ActiveRows, l1WaitingRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
+  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
   const l1ActiveTicketCount = useMemo(() => l1ActiveRows.length, [l1ActiveRows]);
   const dispatchTrackingCount = useMemo(() => dispatchTrackingRows.length, [dispatchTrackingRows]);
   const l1WaitingTicketCount = useMemo(() => complaintRows.filter((complaint) => (
@@ -18270,7 +18279,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <div className="text-xs text-gray-500">
                   {isServiceEngineerRole
                     ? `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${currentRole === "L3 Advanced OEM Support" ? ` | Spare/Replacement: ${dispatchTrackingCount}` : ""}`
-                    : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
+                    : isServiceAdmin
+                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | In Progress: ${adminInProgressRows.length} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
+                      : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
                 </div>
               </div>
               <button
@@ -18289,9 +18300,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   <span>8 per page</span>
                 </div>
               </div>
-              {isServiceEngineerRole && (
+              {(isServiceEngineerRole || isServiceAdmin) && (
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {[
+                  {(isServiceAdmin ? [
+                    { id: "active", label: "All Tickets", count: complaintRows.length },
+                    { id: "waiting", label: "Waiting Lobby", count: adminWaitingRows.length },
+                    { id: "assigned", label: "Assigned to Engineer", count: adminAssignedRows.length },
+                    { id: "inprogress", label: "In Progress", count: adminInProgressRows.length },
+                  ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
                     { id: "waiting", label: "Waiting Lobby", count: Math.min(l1VisibleWaitingTicketCount, 5) },
                     { id: "onsite", label: "Onsite", count: l1OnsiteTicketCount },
@@ -18299,14 +18315,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "dispatch", label: "Spare/Replacement", count: dispatchTrackingCount }] : []),
                     ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "team", label: "All L1/L2 Tickets", count: teamTicketRows.length }] : []),
                     ...(currentRole === "L2 Technical Team" ? [{ id: "team", label: "All L1 Tickets", count: teamTicketRows.length }] : []),
-                  ].map((tab) => {
+                  ]).map((tab) => {
                     const active = complaintListTab === tab.id;
                     return (
                       <button
                         key={tab.id}
                         type="button"
                         onClick={() => {
-                          setComplaintListTab(tab.id as "active" | "waiting" | "onsite" | "dispatch" | "team" | "l1backup");
+                          setComplaintListTab(tab.id as "active" | "waiting" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress");
                           setReassignComplaintId("");
                           setReassignTargetEngineerId("");
                         }}
@@ -18439,18 +18455,18 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   </div>
                 </div>
               )}
-              <Table headers={["Action", "#", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date", "Issue", "Status"]}>
+              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue", "Status"]}>
                 {complaintsRes.loading ? (
                   <TR>
-                    <TD colSpan={13} className="text-center text-gray-400 py-10">Loading...</TD>
+                    <TD colSpan={14} className="text-center text-gray-400 py-10">Loading...</TD>
                   </TR>
                 ) : complaintsRes.error ? (
                   <TR>
-                    <TD colSpan={13} className="text-center text-red-500 py-10">{complaintsRes.error}</TD>
+                    <TD colSpan={14} className="text-center text-red-500 py-10">{complaintsRes.error}</TD>
                   </TR>
                 ) : filteredComplaintRows.length === 0 ? (
                   <TR>
-                    <TD colSpan={13} className="text-center text-gray-400 py-10">
+                    <TD colSpan={14} className="text-center text-gray-400 py-10">
                       {complaintListSearch.trim()
                         ? "No complaint matches this search."
                         : complaintListTab === "dispatch"
@@ -18511,6 +18527,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                         )}
                       </TD>
                       <TD className="text-gray-400">{(complaintListPage - 1) * COMPLAINT_LIST_PAGE_SIZE + i + 1}</TD>
+                      <TD className="font-mono text-xs text-gray-800 whitespace-nowrap">{c.ticketNumber || c.id}</TD>
                       <TD className="font-mono text-xs text-gray-800">{c.replacementRequestSerialNo || c.replacementSerialNo || c.productSerialNo || "-"}</TD>
                       <TD className="font-mono text-xs text-gray-700">{c.customerPhone || "-"}</TD>
                       <TD className="text-gray-600 text-xs whitespace-nowrap">{c.region || "-"}</TD>
@@ -18570,8 +18587,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       <TD className="text-gray-600 text-xs whitespace-nowrap">{c.escalationLevel || "L1"}</TD>
                       <TD className="text-gray-500 text-xs whitespace-nowrap">
                         {isServiceEngineerRole && complaintListTab === "onsite" && c.siteVisitScheduledDate
-                          ? new Date(c.siteVisitScheduledDate).toLocaleDateString()
-                          : new Date(c.dateOfComplaint).toLocaleDateString()}
+                          ? new Date(c.siteVisitScheduledDate).toLocaleString()
+                          : new Date(c.createdAt || c.dateOfComplaint).toLocaleString()}
                       </TD>
                       <TD className="max-w-xs truncate text-gray-700 text-sm">
                         <span title={c.issueDescription}>{c.issueDescription}</span>
