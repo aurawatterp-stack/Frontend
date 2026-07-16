@@ -9049,6 +9049,30 @@ export function InventorySalesEntryPage({ currentUser }: { currentUser?: User })
     });
   }, [salesRows, ledgerSearch, filters, customers, manufacturedBySerial, productById]);
 
+  const seriesSummaryRows = useMemo(() => {
+    const bySeries = new Map<string, { total: number; models: Map<string, number> }>();
+    for (const saleItem of salesRows) {
+      const manufacturedItem = saleItem.serialNumber ? manufacturedBySerial.get(saleItem.serialNumber) : undefined;
+      const product = (manufacturedItem ? productById.get(manufacturedItem.productId) : undefined)
+        ?? (saleItem.materialName ? productById.get(saleItem.materialName) : undefined);
+      const seriesName = product?.series || "Unmatched / Unknown Series";
+      const modelName = product?.model || saleItem.materialName || "Unknown Model";
+      const qty = saleItem.quantity || 1;
+      const entry = bySeries.get(seriesName) ?? { total: 0, models: new Map<string, number>() };
+      entry.total += qty;
+      entry.models.set(modelName, (entry.models.get(modelName) ?? 0) + qty);
+      bySeries.set(seriesName, entry);
+    }
+    return [...bySeries.entries()]
+      .map(([series, { total, models }]) => ({
+        series,
+        total,
+        models: [...models.entries()].sort((a, b) => b[1] - a[1]),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [salesRows, manufacturedBySerial, productById]);
+  const seriesSummaryGrandTotal = useMemo(() => seriesSummaryRows.reduce((sum, row) => sum + row.total, 0), [seriesSummaryRows]);
+
   const ledgerTotalPages = Math.max(1, Math.ceil(ledgerRows.length / pageSize));
   const safeLedgerPage = Math.min(ledgerPage, ledgerTotalPages);
   const ledgerPageStart = ledgerRows.length ? (safeLedgerPage - 1) * pageSize : 0;
@@ -9298,6 +9322,46 @@ export function InventorySalesEntryPage({ currentUser }: { currentUser?: User })
                 >
                   <IconRotateCcw size={15} />
                 </button>
+              </div>
+            </div>
+
+            <div className="mt-8 rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-bold uppercase text-gray-700">Series-wise Sales Summary</div>
+                <div className="text-sm font-bold text-[#002b6f]">Total: {formatNumber(seriesSummaryGrandTotal)} units</div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] border-separate border-spacing-0 text-xs text-gray-900">
+                  <thead>
+                    <tr className="bg-[#0c5da8] text-white">
+                      <th className="border-r border-white/40 px-3 py-1.5 text-left font-bold">Series</th>
+                      <th className="border-r border-white/40 px-3 py-1.5 text-left font-bold">Model-wise Breakup</th>
+                      <th className="px-3 py-1.5 text-right font-bold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {seriesSummaryRows.map((row, index) => (
+                      <tr key={row.series} className={index % 2 === 0 ? "bg-gray-100" : "bg-white"}>
+                        <td className="border-r border-white px-3 py-1.5 font-semibold">{row.series}</td>
+                        <td className="border-r border-white px-3 py-1.5 text-gray-600">
+                          {row.models.length > 1
+                            ? row.models.map(([model, count]) => `${count} (for ${model})`).join(", ")
+                            : "-"}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-bold text-[#002b6f]">{formatNumber(row.total)}</td>
+                      </tr>
+                    ))}
+                    {seriesSummaryRows.length === 0 && (
+                      <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-500">No sales entries found.</td></tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50">
+                      <td colSpan={2} className="border-r border-white px-3 py-1.5 text-right font-bold text-gray-700">Grand Total</td>
+                      <td className="px-3 py-1.5 text-right font-extrabold text-[#002b6f]">{formatNumber(seriesSummaryGrandTotal)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
 
