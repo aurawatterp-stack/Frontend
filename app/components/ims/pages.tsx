@@ -8476,7 +8476,12 @@ function getComplaintSlaState(complaint?: Complaint | null) {
     };
   }
 
-  const now = Date.now();
+  // Once a ticket is closed, the SLA clock must freeze at the moment it closed —
+  // otherwise a resolved ticket's "Overdue by ..." text keeps growing forever.
+  const closed = isClosedComplaint(complaint.status);
+  const now = closed
+    ? new Date(complaint.closedAt ?? complaint.updatedAt ?? Date.now()).getTime()
+    : Date.now();
   const dueBase = complaint.slaDueAt ? new Date(complaint.slaDueAt).getTime() : Number.NaN;
   const fallbackDue = complaint.slaStartedAt
     ? new Date(complaint.slaStartedAt).getTime() + complaintSlaHours(complaint) * 60 * 60 * 1000
@@ -8487,12 +8492,22 @@ function getComplaintSlaState(complaint?: Complaint | null) {
   const breached = hasDueAt ? dueAt < now : false;
   const remainingMs = hasDueAt ? dueAt - now : 0;
   const nearBreachWindow = Math.min(4 * 60 * 60 * 1000, (totalSlaHours * 60 * 60 * 1000) / 4 || 0);
-  const nearBreach = !breached && hasDueAt ? remainingMs <= nearBreachWindow : false;
+  const nearBreach = !closed && !breached && hasDueAt ? remainingMs <= nearBreachWindow : false;
   const color = !hasDueAt ? "gray" : breached ? "red" : nearBreach ? "orange" : "green";
+  const label = !hasDueAt
+    ? "Not Started"
+    : closed
+      ? (breached ? "Resolved (SLA Breached)" : "Resolved Within SLA")
+      : (breached ? "SLA Breached" : nearBreach ? "Near Breach" : "Within SLA");
+  const remainingText = !hasDueAt
+    ? "Timer Paused"
+    : closed
+      ? (breached ? `Closed ${formatDuration(remainingMs)} late` : `Closed ${formatDuration(remainingMs)} early`)
+      : (breached ? `Overdue by ${formatDuration(remainingMs)}` : `Remaining ${formatDuration(remainingMs)}`);
   return {
     color,
-    label: !hasDueAt ? "Not Started" : breached ? "SLA Breached" : nearBreach ? "Near Breach" : "Within SLA",
-    remainingText: hasDueAt ? (breached ? `Overdue by ${formatDuration(remainingMs)}` : `Remaining ${formatDuration(remainingMs)}`) : "Timer Paused",
+    label,
+    remainingText,
     dueText: hasDueAt ? new Date(dueAt).toLocaleString() : "-",
     breached,
     nearBreach,
