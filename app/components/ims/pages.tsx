@@ -14382,6 +14382,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     const l1ComplaintStatuses = ["Assigned to Engineer", "Assigned for Onsite", "In Progress at Aurawatt", "Waiting Lobby"];
     const isClosed = (status: string) => closedComplaintStatuses.includes(status);
     const rankStatus = (status: string) => {
+      if (currentRole === "Admin") return 0;
       if (currentRole === "L2 Technical Team" && status === "Escalated to L2") return 0;
       if (currentRole === "L3 Advanced OEM Support" && status === "Escalated to L3") return 0;
       if (status === "Assigned to Engineer") return 0;
