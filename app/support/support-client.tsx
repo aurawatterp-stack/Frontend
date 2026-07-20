@@ -200,7 +200,7 @@ export default function SupportClient() {
               Raise inverter complaint from mobile.
             </h1>
             <p className="mt-4 max-w-xl text-base leading-7 text-white/70">
-              Customer ya dealer QR code scan karke isi page par aayega. Serial number verify hoga, aur isi ticket ke liye diya gaya contact mobile service team ko milega.
+              Customers and dealers reach this page by scanning the QR code. Once the serial number is verified, the contact mobile number provided for the ticket is shared with the service team.
             </p>
             <div className="mt-6 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
               {["Scan QR / open link", "Verify serial", "Service team notified"].map((item, index) => (

@@ -225,6 +225,24 @@ function formatDateTimeLocal(value: string | Date | undefined) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// Timestamps are stored as UTC instants. A bare toLocaleString() renders in whatever timezone the
+// runtime happens to be in — a UTC production/SSR host or an engineer's mis-set device then shows the
+// raise time shifted by 5h30m. This is an India-only ERP, so pin every user-facing datetime to IST.
+function formatDateTimeIST(value: string | Date | undefined | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 const DISTRIBUTOR_DOCUMENT_OPTIONS = ["GST Certificate", "PAN Copy", "TAN Copy", "Other Document"];
 const MAX_DISTRIBUTOR_DOCUMENT_BYTES = 5 * 1024 * 1024;
 const MAX_PI_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -816,10 +834,15 @@ function InventoryDashboard({ user, variant, onNavigate }: { user: User; variant
   const perms = user?.permissions ?? [];
   const can = (p: string) => Boolean(isAdmin || perms.includes(p));
   const canComplaints = can("complaints:consumer") || can("complaints:supplier");
+  // Dashboard tiles/percentages summarise the WHOLE inventory, so they must read complete datasets.
+  // Fetching a single truncated page (limit 500/300) silently dropped records — e.g. only 500 of
+  // 4583 serials — and produced wrong numbers (Serial Availability read 46% instead of 69%). Pull
+  // the full set: raw materials fit one page, manufactured/serials use the max page size, and sales
+  // (capped at 100/page) are paginated in full.
   const rawRes = useAsyncData(listRawMaterials, []);
-  const manufacturedRes = useAsyncData(() => listManufactured({ page: 1, limit: 500 }), []);
-  const serialsRes = useAsyncData(() => (can("inventory:serials") ? listSerials({ page: 1, limit: 500 }) : Promise.resolve({ data: [], total: 0, page: 1, limit: 500 })), [can("inventory:serials")]);
-  const salesRes = useAsyncData(() => (can("dispatch:manage") || can("sales:entry") ? listSales({ page: 1, limit: 300 }) : Promise.resolve({ data: [], total: 0, page: 1, limit: 300 })), [can("dispatch:manage"), can("sales:entry")]);
+  const manufacturedRes = useAsyncData(() => listManufactured({ page: 1, limit: 5000 }), []);
+  const serialsRes = useAsyncData(() => (can("inventory:serials") ? listSerials({ page: 1, limit: 10000 }) : Promise.resolve({ data: [], total: 0, page: 1, limit: 10000 })), [can("inventory:serials")]);
+  const salesRes = useAsyncData<Sale[]>(() => (can("dispatch:manage") || can("sales:entry") ? fetchAllSales() : Promise.resolve([])), [can("dispatch:manage"), can("sales:entry")]);
   const complaintRes = useAsyncData(() => (canComplaints ? listComplaints({ type: "Consumer" }) : Promise.resolve({ data: [], total: 0, page: 1, limit: 1000 })), [canComplaints]);
   const approvalsRes = useAsyncData(() => (isAdmin ? listManufacturedApprovalRequests() : Promise.resolve({ data: [], total: 0, page: 1, limit: 100 })), [isAdmin]);
   const timelineRes = useAsyncData(() => getDashboardTimeline(6), []);
@@ -827,7 +850,7 @@ function InventoryDashboard({ user, variant, onNavigate }: { user: User; variant
   const rawRows = rawRes.data?.data ?? [];
   const manufacturedRows = manufacturedRes.data?.data ?? [];
   const serialRows = serialsRes.data?.data ?? [];
-  const salesRows = salesRes.data?.data ?? [];
+  const salesRows = salesRes.data ?? [];
   const complaints = complaintRes.data?.data ?? [];
   const readyRows = manufacturedRows.filter((row) => row.status === "In Stock" || row.status === "Ready Stock");
   const manufacturedToday = manufacturedRows.filter((row) => isSameCalendarDay(row.mfgDate)).length;
@@ -891,7 +914,7 @@ function InventoryDashboard({ user, variant, onNavigate }: { user: User; variant
         {isAdmin ? (
           <>
             <DashboardStatCard label="Pending Supplier Returns" value={formatNumber(rawRows.filter((row) => row.returnStatus === "Returned to Vendor").length)} hint="Raw material returns pending" icon="RT" color="amber" />
-            <DashboardStatCard label="Inventory Value" value={formatNumber(rawRows.reduce((sum, row) => sum + (row.quantityAvailable ?? 0), 0) + readyRows.length)} hint="RM + FG quantity value" icon="INR" color="slate" />
+            <DashboardStatCard label="Total Stock (Units)" value={formatNumber(rawRows.reduce((sum, row) => sum + (row.quantityAvailable ?? 0), 0) + readyRows.length)} hint="Raw material + finished goods units" icon="#" color="slate" />
           </>
         ) : (
           <DashboardStatCard label="Unassigned Serials" value={formatNumber(unassignedSerials)} hint="Available serial pool" icon="#" color="slate" />
@@ -1476,7 +1499,7 @@ function EngineerDashboardPage({ user }: { user: User }) {
                   <div className="text-gray-500">{ticket.status === "Assigned for Onsite" ? "Onsite queue" : ticket.status === "Pending L3 Approval" ? "L3 review queue" : ticket.status === "Awaiting Dispatch" ? "Dispatch queue" : "Active queue"}</div>
                 </TD>
                 <TD className="text-xs text-gray-700">{ticket.priority || "Low"}</TD>
-                <TD className="text-xs text-gray-500 whitespace-nowrap">{new Date(ticket.updatedAt ?? ticket.dateOfComplaint).toLocaleString()}</TD>
+                <TD className="text-xs text-gray-500 whitespace-nowrap">{formatDateTimeIST(ticket.updatedAt ?? ticket.dateOfComplaint)}</TD>
                 <TD className="max-w-xs truncate text-sm text-gray-700">
                   <span title={ticket.issueDescription}>{ticket.issueDescription}</span>
                 </TD>
@@ -6380,13 +6403,14 @@ export function ManufacturedPage() {
     const rows = manufacturedRes.data?.data ?? [];
     const query = bomSearch.trim().toLowerCase();
     return rows.filter((m) => {
-      const series = productByModel.get(m.productId)?.series ?? "";
+      const bomProduct = productByModel.get(m.productId);
+      const series = bomProduct?.series ?? "";
       if (bomFilters.series && series !== bomFilters.series) return false;
       if (bomFilters.serialNumber && m.serialNumber !== bomFilters.serialNumber) return false;
       if (bomFilters.batch && !(m.bomUsage ?? []).some((item) => item.batch === bomFilters.batch)) return false;
       if (query) {
         const usageText = (m.bomUsage ?? []).map((item) => `${item.materialName} ${item.batch ?? ""}`).join(" ");
-        const hay = `${m.serialNumber} ${series} ${m.productId} ${usageText}`.toLowerCase();
+        const hay = `${m.serialNumber} ${series} ${bomProduct?.model ?? m.productId} ${usageText}`.toLowerCase();
         if (!hay.includes(query)) return false;
       }
       return true;
@@ -6516,12 +6540,13 @@ export function ManufacturedPage() {
     if (to) to.setHours(23, 59, 59, 999);
 
     return rows.filter((m) => {
+      const rowModel = productByModel.get(m.productId)?.model ?? m.productId;
       if (query) {
-        const hay = `${m.serialNumber} ${m.productId} ${m.invoiceNo ?? ""}`.toLowerCase();
+        const hay = `${m.serialNumber} ${rowModel} ${m.invoiceNo ?? ""}`.toLowerCase();
         if (!hay.includes(query)) return false;
       }
 
-      if (model && m.productId !== model) return false;
+      if (model && rowModel !== model) return false;
       if (series) {
         const s = productByModel.get(m.productId)?.series;
         if (s !== series) return false;
@@ -6585,7 +6610,7 @@ export function ManufacturedPage() {
     setEditingRowId(m.id);
     setRowEditForm({
       series,
-      productId: m.productId ?? "",
+      productId: productByModel.get(m.productId)?.id ?? m.productId ?? "",
       serialNumber: m.serialNumber ?? "",
       mfgDate: formatDateOnly(m.mfgDate) === "-" ? "" : formatDateOnly(m.mfgDate),
       invoiceNo: m.invoiceNo ?? "",
@@ -7067,7 +7092,8 @@ export function ManufacturedPage() {
                     </tr>
                   ) : (
                     paginatedBomRows.map((m, index) => {
-                      const series = productByModel.get(m.productId)?.series ?? "-";
+                      const bomProduct = productByModel.get(m.productId);
+                      const series = bomProduct?.series ?? "-";
                       return (
                         <tr key={m.id} className={index % 2 === 0 ? "bg-gray-100" : "bg-white"}>
                           <td className="border-r border-white px-3 py-1 font-mono text-xs font-bold text-gray-800">{m.serialNumber}</td>
@@ -7076,7 +7102,7 @@ export function ManufacturedPage() {
                               {series}
                             </span>
                           </td>
-                          <td className="border-r border-white px-3 py-1 text-gray-900">{m.productId}</td>
+                          <td className="border-r border-white px-3 py-1 text-gray-900">{bomProduct?.model ?? m.productId}</td>
                           <td className="border-r border-white px-3 py-1 text-gray-900 whitespace-nowrap">{formatDateOnly(m.mfgDate)}</td>
                           <td className="border-r border-white px-3 py-1">
                             {(m.bomUsage ?? []).length === 0 ? (
@@ -7337,9 +7363,9 @@ export function ManufacturedPage() {
                     paginated.map((m, i) => {
                       const isEditing = editingRowId === m.id;
                       const rowSeries = isEditing ? rowEditForm.series : productByModel.get(m.productId)?.series ?? "";
-                      const rowModelOptions = rowSeries
-                        ? (productsRes.data ?? []).filter((product) => product.series === rowSeries).map((product) => product.model).filter(Boolean).sort()
-                        : (productsRes.data ?? []).map((product) => product.model).filter(Boolean).sort();
+                      const rowModelOptions = (productsRes.data ?? [])
+                        .filter((product) => Boolean(product.model) && (!rowSeries || product.series === rowSeries))
+                        .sort((a, b) => a.model.localeCompare(b.model));
                       return (
                         <tr key={m.id} className={i % 2 === 0 ? "bg-gray-100" : "bg-white"}>
                           <td className="border-r border-white px-3 py-1">
@@ -7375,12 +7401,12 @@ export function ManufacturedPage() {
                                 className="w-full min-w-36 rounded border border-gray-300 bg-white px-2 py-2 text-sm text-gray-800 focus:outline-none focus:border-blue-500"
                               >
                                 <option value="">Select Model...</option>
-                                {rowModelOptions.map((model) => (
-                                  <option key={model} value={model}>{model}</option>
+                                {rowModelOptions.map((product) => (
+                                  <option key={product.id} value={product.id}>{product.model}</option>
                                 ))}
                               </select>
                             ) : (
-                              m.productId
+                              productByModel.get(m.productId)?.model ?? m.productId
                             )}
                           </td>
                           <td className="border-r border-white px-3 py-1 font-mono text-xs text-gray-800">
@@ -8508,7 +8534,7 @@ function getComplaintSlaState(complaint?: Complaint | null) {
     color,
     label,
     remainingText,
-    dueText: hasDueAt ? new Date(dueAt).toLocaleString() : "-",
+    dueText: hasDueAt ? formatDateTimeIST(dueAt) : "-",
     breached,
     nearBreach,
   };
@@ -13775,7 +13801,7 @@ export function DispatchTeamPage() {
                           </TD>
                           <TD><Badge color="green">{complaint.spareRequestStatus || complaint.status}</Badge></TD>
                           <TD className="text-xs text-gray-600">
-                            {new Date(complaint.closedAt ?? complaint.updatedAt ?? complaint.dateOfComplaint).toLocaleString()}
+                            {formatDateTimeIST(complaint.closedAt ?? complaint.updatedAt ?? complaint.dateOfComplaint)}
                           </TD>
                         </TR>
                       ))}
@@ -14203,7 +14229,10 @@ export function DispatchTeamPage() {
 
 export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) {
   const manufacturedRes = useAsyncData(fetchAllSoldManufactured, []);
-  const soldSerialsRes = useAsyncData(() => listSerials({ status: "Sold" }), []);
+  // Complaint registration accepts any serial from the Serial Management module regardless of its
+  // sales status (Sold / Available / Dispatched) — a unit can need service even if its serial was
+  // never marked Sold in the system. So load the full serial pool, not just Sold ones.
+  const serialPoolRes = useAsyncData(() => listSerials({}), []);
   const productsRes = useAsyncData(() => listProducts({}), []);
   const complaintsRes = useAsyncData(() => listComplaints({ type: "Consumer" }), []);
   const serviceEngineersRes = useAsyncData(listServiceEngineers, []);
@@ -14254,11 +14283,11 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
   const serialEntryBySerial = useMemo(() => {
     const map = new Map<string, SerialEntry>();
-    (soldSerialsRes.data?.data ?? []).forEach((item) => {
+    (serialPoolRes.data?.data ?? []).forEach((item) => {
       map.set(item.serialNumber.trim(), item);
     });
     return map;
-  }, [soldSerialsRes.data]);
+  }, [serialPoolRes.data]);
 
   const latestSaleBySerial = useMemo(() => {
     const map = new Map<string, Sale>();
@@ -14587,12 +14616,18 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (!query) return visibleComplaintRows;
     return visibleComplaintRows.filter((complaint) => {
       const haystack = [
+        complaint.ticketNumber, // human-readable Ticket ID (e.g. AW-20260716-0008) shown in the UI
         complaint.id,
         complaint.productSerialNo,
         complaint.customerName,
         complaint.customerPhone,
+        ...(complaint.customerPhones ?? []),
         complaint.dealerName,
         complaint.region,
+        complaint.state,
+        complaint.district,
+        complaint.siteLocation,
+        complaint.productModel,
         complaint.priority,
         complaint.assignedEngineerName,
         complaint.engineerName,
@@ -14628,8 +14663,19 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         if (Number.isFinite(toTime) && closedAt > toTime) return false;
         if (!query) return true;
         const haystack = [
+          complaint.ticketNumber, // human-readable Ticket ID (e.g. AW-20260716-0008) shown in the UI
           complaint.id,
           complaint.productSerialNo,
+          complaint.customerName,
+          complaint.customerPhone,
+          ...(complaint.customerPhones ?? []),
+          complaint.assignedEngineerName,
+          complaint.engineerName,
+          complaint.region,
+          complaint.state,
+          complaint.district,
+          complaint.siteLocation,
+          complaint.productModel,
           complaint.issueDescription,
           complaint.finalResolution,
           complaint.closureReport,
@@ -14794,7 +14840,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const replacementEngineerOptions = siteVisitEngineerOptions;
   const serialDropdownOptions = useMemo(() => {
     const query = serialNumber.trim().toLowerCase();
-    const rows = soldSerialsRes.data?.data ?? [];
+    const rows = serialPoolRes.data?.data ?? [];
     const filteredRows = query
       ? rows.filter((m) => m.serialNumber.toLowerCase().includes(query))
       : rows;
@@ -14802,7 +14848,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     return filteredRows
       .slice()
       .sort((a, b) => a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true, sensitivity: "base" }));
-  }, [serialNumber, soldSerialsRes.data]);
+  }, [serialNumber, serialPoolRes.data]);
 
   const hasMandatoryL1Readings = useMemo(() => {
     const acRequired = ["l1L2Voltage", "l2L3Voltage", "l3L1Voltage", "l1NVoltage", "l2NVoltage", "l3NVoltage", "nEVoltage"];
@@ -16474,14 +16520,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   </div>
                   {serialDropdownOpen && (
                     <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg shadow-gray-200/70">
-                      {soldSerialsRes.loading || manufacturedRes.loading ? (
+                      {serialPoolRes.loading || manufacturedRes.loading ? (
                         <div className="px-3 py-1 text-sm text-gray-500">Loading serials...</div>
                       ) : serialDropdownOptions.length ? (
                         <>
                           <div className="sticky top-0 z-10 border-b border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold text-gray-500">
                             {serialNumber.trim()
-                              ? `${serialDropdownOptions.length} matching sold serials`
-                              : `${serialDropdownOptions.length} sold serials available`}
+                              ? `${serialDropdownOptions.length} matching serials`
+                              : `${serialDropdownOptions.length} serials available`}
                           </div>
                           {serialDropdownOptions.map((m, index) => {
                             const manufactured = manufacturedBySerial.get(m.serialNumber) ?? null;
@@ -16517,7 +16563,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   )}
                 </div>
                 <div className="mt-1 text-[11px] text-gray-400">
-                  {soldSerialsRes.loading || manufacturedRes.loading ? "Loading serials..." : `${(soldSerialsRes.data?.data ?? []).length} sold serials`}
+                  {serialPoolRes.loading || manufacturedRes.loading ? "Loading serials..." : `${(serialPoolRes.data?.data ?? []).length} serials`}
                 </div>
               </div>
               <div>
@@ -18062,10 +18108,15 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
+                      {selectedClosedComplaint.ticketNumber && (
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 font-mono text-xs font-bold text-amber-700">
+                          {selectedClosedComplaint.ticketNumber}
+                        </span>
+                      )}
                       <span className="font-mono text-sm font-bold text-gray-900">{selectedClosedComplaint.productSerialNo || "No serial"}</span>
                       {complaintStatusBadge(selectedClosedComplaint.status)}
                       <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-600">
-                        Closed at {new Date(selectedClosedComplaint.closedAt ?? selectedClosedComplaint.updatedAt ?? selectedClosedComplaint.dateOfComplaint).toLocaleString()}
+                        Closed at {formatDateTimeIST(selectedClosedComplaint.closedAt ?? selectedClosedComplaint.updatedAt ?? selectedClosedComplaint.dateOfComplaint)}
                       </span>
                     </div>
                     <div className="mt-2 text-sm font-semibold text-gray-900">{selectedClosedComplaint.issueDescription}</div>
@@ -18122,7 +18173,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   <div className="rounded-lg border border-emerald-100 bg-white p-3">
                     <div className="mb-1 text-xs font-bold uppercase tracking-widest text-gray-400">Ticket Timeline</div>
                     <div className="space-y-2 text-sm text-gray-700">
-                      <div><b>Opened:</b> {new Date(selectedClosedComplaint.dateOfComplaint).toLocaleString()}</div>
+                      <div><b>Opened:</b> {formatDateTimeIST(selectedClosedComplaint.dateOfComplaint)}</div>
                       <div><b>Work Started:</b> {selectedClosedComplaint.serviceStartedAt ? new Date(selectedClosedComplaint.serviceStartedAt).toLocaleString() : "-"}</div>
                       <div><b>Closed:</b> {selectedClosedComplaint.closedAt ? new Date(selectedClosedComplaint.closedAt).toLocaleString() : "-"}</div>
                     </div>
@@ -18139,23 +18190,24 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
               </div>
             )}
 
-            <Table headers={["#", "Serial", "Level", "Engineer", "Closed At", "Resolution", "Close Remark", "Status", "Action"]}>
+            <Table headers={["#", "Ticket ID", "Serial", "Level", "Engineer", "Closed At", "Resolution", "Close Remark", "Status", "Action"]}>
               {complaintsRes.loading ? (
                 <TR>
-                  <TD colSpan={9} className="text-center text-gray-400 py-10">Loading...</TD>
+                  <TD colSpan={10} className="text-center text-gray-400 py-10">Loading...</TD>
                 </TR>
               ) : closedComplaintRows.length === 0 ? (
                 <TR>
-                  <TD colSpan={9} className="text-center text-gray-400 py-10">No closed tickets yet.</TD>
+                  <TD colSpan={10} className="text-center text-gray-400 py-10">No closed tickets yet.</TD>
                 </TR>
               ) : (
                 closedComplaintRows.map((complaint, index) => (
                   <TR key={complaint.id} zebra={index % 2 === 1}>
                     <TD className="text-gray-400">{index + 1}</TD>
+                    <TD className="font-mono text-xs font-semibold text-amber-700 whitespace-nowrap">{complaint.ticketNumber || "-"}</TD>
                     <TD className="font-mono text-xs text-gray-800">{complaint.productSerialNo || "-"}</TD>
                     <TD className="text-gray-600 text-xs whitespace-nowrap">{complaint.escalationLevel || "L1"}</TD>
                     <TD className="text-gray-700 text-xs">{complaint.engineerName || complaint.assignedEngineerName || "-"}</TD>
-                    <TD className="text-gray-500 text-xs whitespace-nowrap">{new Date(complaint.closedAt ?? complaint.updatedAt ?? complaint.dateOfComplaint).toLocaleString()}</TD>
+                    <TD className="text-gray-500 text-xs whitespace-nowrap">{formatDateTimeIST(complaint.closedAt ?? complaint.updatedAt ?? complaint.dateOfComplaint)}</TD>
                     <TD className="max-w-xs truncate text-sm text-gray-700">
                       <span title={complaint.finalResolution || complaint.closureReport || ""}>
                         {complaint.finalResolution || complaint.closureReport || "-"}
@@ -18667,8 +18719,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       <TD className="text-gray-600 text-xs whitespace-nowrap">{c.escalationLevel || "L1"}</TD>
                       <TD className="text-gray-500 text-xs whitespace-nowrap">
                         {isServiceEngineerRole && complaintListTab === "onsite" && c.siteVisitScheduledDate
-                          ? new Date(c.siteVisitScheduledDate).toLocaleString()
-                          : new Date(c.createdAt || c.dateOfComplaint).toLocaleString()}
+                          ? formatDateTimeIST(c.siteVisitScheduledDate)
+                          : formatDateTimeIST(c.createdAt || c.dateOfComplaint)}
                       </TD>
                       <TD className="max-w-xs truncate text-gray-700 text-sm">
                         <span title={c.issueDescription}>{c.issueDescription}</span>
