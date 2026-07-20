@@ -228,7 +228,7 @@ function formatDateTimeLocal(value: string | Date | undefined) {
 // Timestamps are stored as UTC instants. A bare toLocaleString() renders in whatever timezone the
 // runtime happens to be in — a UTC production/SSR host or an engineer's mis-set device then shows the
 // raise time shifted by 5h30m. This is an India-only ERP, so pin every user-facing datetime to IST.
-function formatDateTimeIST(value: string | Date | undefined | null) {
+function formatDateTimeIST(value: string | number | Date | undefined | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
