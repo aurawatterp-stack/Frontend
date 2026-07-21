@@ -93,6 +93,8 @@ import {
   createComplaint,
   updateComplaintService,
   startComplaintSla,
+  holdComplaint,
+  unholdComplaint,
   updateComplaintStatus,
   uploadComplaintInverterPicture,
   getRawMaterialMeta,
@@ -8176,6 +8178,8 @@ const SERVICE_STAGE_TABS = [
 const COMPLAINT_LIST_PAGE_SIZE = 10;
 type ServiceStageId = (typeof SERVICE_STAGE_TABS)[number]["id"];
 const DISPATCH_TRACKING_STATUSES = ["Spare Requested", "Replacement Requested", "Awaiting Dispatch", "Dispatch in Progress", "Dispatched"];
+/** Held tickets sit outside the 5 active / 5 lobby capacity counters. */
+const HOLD_TICKET_STATUS = "On Hold";
 
 function serviceStagesForPermissions(permissions: string[], role?: string): ServiceStageId[] {
   const perms = new Set(permissions);
@@ -14359,7 +14363,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [listOpen, setListOpen] = useState(false);
   const [complaintListSearch, setComplaintListSearch] = useState("");
   const [complaintListPage, setComplaintListPage] = useState(1);
-  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress">("active");
+  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress">("active");
   const [reassignComplaintId, setReassignComplaintId] = useState("");
   const [reassignTargetRole, setReassignTargetRole] = useState<ServiceAssignmentRole>("L1 Engineer");
   const [reassignTargetEngineerId, setReassignTargetEngineerId] = useState("");
@@ -14369,6 +14373,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [selectedComplaintId, setSelectedComplaintId] = useState("");
   const [selectedClosedComplaintId, setSelectedClosedComplaintId] = useState("");
   const [serviceActionId, setServiceActionId] = useState("");
+  const [holdTargetComplaint, setHoldTargetComplaint] = useState<Complaint | null>(null);
+  const [holdReasonDraft, setHoldReasonDraft] = useState("");
+  const [holdError, setHoldError] = useState("");
   const [onsiteAssignmentOpen, setOnsiteAssignmentOpen] = useState(false);
   const [onsiteAssignmentEngineerId, setOnsiteAssignmentEngineerId] = useState("");
   const [onsiteAssignmentEngineerName, setOnsiteAssignmentEngineerName] = useState("");
@@ -14544,9 +14551,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const l1ActiveRows = useMemo(() => complaintRows.filter((complaint) => (
     complaint.assignmentType !== "Backup L1" &&
     !(complaint.assignmentStatus === "Waiting" && complaint.status === "Waiting Lobby") &&
+    complaint.status !== HOLD_TICKET_STATUS &&
     !isOnsiteAssignedToCurrentUser(complaint) &&
     !isDispatchTrackingComplaint(complaint)
   )), [complaintRows, currentUser?.id, currentUser?.name]);
+  const l1HoldRows = useMemo(
+    () => complaintRows.filter((complaint) => complaint.status === HOLD_TICKET_STATUS),
+    [complaintRows]
+  );
   const l1WaitingRows = useMemo(() => complaintRows.filter((complaint) => (
     complaint.assignmentType !== "Backup L1" &&
     complaint.assignmentStatus === "Waiting" && complaint.status === "Waiting Lobby"
@@ -14584,6 +14596,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (complaintListTab === "waiting") {
       return l1WaitingRows.slice(l1PromotedRowIds.size, l1PromotedRowIds.size + 5);
     }
+    if (complaintListTab === "hold") {
+      return l1HoldRows;
+    }
     if (complaintListTab === "onsite") {
       return complaintRows.filter(isOnsiteAssignedToCurrentUser);
     }
@@ -14601,7 +14616,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       return [...activeRows, ...l1WaitingRows.slice(0, 5 - activeRows.length)];
     }
     return activeRows;
-  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
+  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
   const l1ActiveTicketCount = useMemo(() => l1ActiveRows.length, [l1ActiveRows]);
   const dispatchTrackingCount = useMemo(() => dispatchTrackingRows.length, [dispatchTrackingRows]);
   const l1WaitingTicketCount = useMemo(() => complaintRows.filter((complaint) => (
@@ -14968,6 +14983,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (status === "Replacement Requested" || status === "Awaiting Dispatch") return <Badge color="orange">{status}</Badge>;
     if (status === "Dispatch in Progress") return <Badge color="orange">{status}</Badge>;
     if (status === "Dispatched") return <Badge color="green">Dispatch Done</Badge>;
+    if (status === "On Hold") return <Badge color="orange">{status}</Badge>;
     if (status === "Pending with Suppliers") return <Badge color="yellow">{status}</Badge>;
     if (status === "Resolved by Suppliers") return <Badge color="green">{status}</Badge>;
     return <Badge color="gray">{status}</Badge>;
@@ -15471,6 +15487,61 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         createdAt: iso,
       },
     ];
+  };
+
+  const openHoldModal = (complaint: Complaint) => {
+    if (serviceActionId) return;
+    setHoldTargetComplaint(complaint);
+    setHoldReasonDraft("");
+    setHoldError("");
+  };
+
+  const cancelHoldModal = () => {
+    if (serviceActionId) return;
+    setHoldTargetComplaint(null);
+    setHoldReasonDraft("");
+    setHoldError("");
+  };
+
+  const submitHold = async () => {
+    if (!holdTargetComplaint) return;
+    const reason = holdReasonDraft.trim();
+    if (!reason) {
+      setHoldError("Please add a reason so the team knows why this ticket is on hold.");
+      return;
+    }
+
+    setServiceActionId(holdTargetComplaint.id);
+    setHoldError("");
+    setFormError("");
+    setFormOk("");
+    try {
+      await holdComplaint(holdTargetComplaint.id, reason);
+      setFormOk("Ticket moved to Hold Tickets. Your active slot is now free for the next waiting ticket.");
+      setHoldTargetComplaint(null);
+      setHoldReasonDraft("");
+      complaintsRes.reload();
+    } catch (err) {
+      setHoldError(err instanceof Error ? err.message : "Failed to put the ticket on hold.");
+    } finally {
+      setServiceActionId("");
+    }
+  };
+
+  const releaseHold = async (complaint: Complaint) => {
+    if (serviceActionId) return;
+    setServiceActionId(complaint.id);
+    setFormError("");
+    setFormOk("");
+    try {
+      await unholdComplaint(complaint.id);
+      setFormOk("Hold released. The ticket is back in your work queue.");
+      complaintsRes.reload();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to release the hold.");
+    } finally {
+      setServiceActionId("");
+    }
   };
 
   const openCloseRemarkModal = (target: CloseRemarkTarget) => {
@@ -18262,6 +18333,68 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         )}
       </div>
 
+      {holdTargetComplaint && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-orange-100 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-widest text-orange-700">Put Ticket On Hold</div>
+                <div className="mt-1 text-sm text-gray-500">
+                  Ticket {holdTargetComplaint.ticketNumber || holdTargetComplaint.id} will move to the Hold Tickets tab. Your active slot frees up
+                  for the next waiting ticket, and the SLA timer pauses until you resume.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={cancelHoldModal}
+                disabled={Boolean(serviceActionId)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close hold modal"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">Hold Reason</label>
+              <textarea
+                value={holdReasonDraft}
+                onChange={(event) => {
+                  setHoldReasonDraft(event.target.value);
+                  setHoldError("");
+                }}
+                rows={4}
+                autoFocus
+                placeholder="Example: Customer not available at site, requested a visit next week."
+                className="w-full resize-none rounded-xl border border-gray-200 px-3 py-1 text-sm text-gray-800 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+              />
+              {holdError ? (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">
+                  {holdError}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={cancelHoldModal}
+                disabled={Boolean(serviceActionId)}
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitHold}
+                disabled={Boolean(serviceActionId)}
+                className="rounded-lg border border-orange-200 bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {serviceActionId ? "Putting on hold..." : "Put On Hold"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {closeRemarkTarget && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl border border-emerald-100 bg-white shadow-2xl">
@@ -18442,6 +18575,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
                     { id: "waiting", label: "Waiting Lobby", count: Math.min(l1VisibleWaitingTicketCount, 5) },
+                    { id: "hold", label: "Hold Tickets", count: l1HoldRows.length },
                     { id: "onsite", label: "Onsite", count: l1OnsiteTicketCount },
                     ...((amIL1BackupRes.data?.isL1Backup || l1BackupRows.length > 0) ? [{ id: "l1backup", label: "L1 Backup", count: l1BackupRows.length }] : []),
                     ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "dispatch", label: "Spare/Replacement", count: dispatchTrackingCount }] : []),
@@ -18454,7 +18588,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                         key={tab.id}
                         type="button"
                         onClick={() => {
-                          setComplaintListTab(tab.id as "active" | "waiting" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress");
+                          setComplaintListTab(tab.id as "active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress");
                           setReassignComplaintId("");
                           setReassignTargetEngineerId("");
                         }}
@@ -18467,6 +18601,16 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       </button>
                     );
                   })}
+                </div>
+              )}
+              {complaintListTab === "hold" && isServiceEngineerRole && (
+                <div className="mb-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs leading-5 text-orange-900">
+                  <span className="font-bold uppercase tracking-widest">Hold Tickets</span>
+                  <div className="mt-1">
+                    Tickets parked because work could not continue — for example the customer was not available at site. These do not use your
+                    5 active or 5 waiting slots, so new tickets keep flowing to you. Their SLA stays paused. Open the inspection form here to
+                    resolve one, or use Release Hold to move it back into your active queue.
+                  </div>
                 </div>
               )}
               {complaintListTab === "team" && (
@@ -18601,7 +18745,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     <TD colSpan={14} className="text-center text-gray-400 py-10">
                       {complaintListSearch.trim()
                         ? "No complaint matches this search."
-                        : complaintListTab === "dispatch"
+                        : complaintListTab === "hold"
+                          ? "No tickets on hold. Use Hold Ticket on an active ticket when the customer is unavailable, then resolve it from here later."
+                          : complaintListTab === "dispatch"
                           ? "No spare or replacement requests pending. Tickets appear here once sent for spare/replacement and stay until dispatched and closed."
                           : complaintListTab === "team"
                             ? (currentRole === "L2 Technical Team" ? "No L1 tickets found in your team." : "No L1/L2 tickets found.")
@@ -18645,6 +18791,28 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                                   : c.serviceStartedAt ? "Open Inspection Form" : "Start Inspection Form"}
                               </button>
                             ) : null}
+                            {isServiceEngineerRole && complaintListTab === "active" && !isWaitingLobbyComplaint(c) && !l1PromotedRowIds.has(c.id) && !closedComplaintStatuses.includes(c.status) && (
+                              <button
+                                type="button"
+                                onClick={() => openHoldModal(c)}
+                                disabled={serviceActionId === c.id}
+                                title="Customer unavailable? Park this ticket so the next waiting ticket can start."
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100 transition disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {serviceActionId === c.id ? "Holding..." : "Hold Ticket"}
+                              </button>
+                            )}
+                            {isServiceEngineerRole && complaintListTab === "hold" && (
+                              <button
+                                type="button"
+                                onClick={() => releaseHold(c)}
+                                disabled={serviceActionId === c.id}
+                                title="Move this ticket back into your active work queue."
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {serviceActionId === c.id ? "Releasing..." : "Release Hold"}
+                              </button>
+                            )}
                             {currentRole !== "L1 Engineer" && currentRole !== "L1 Backup Engineer" && canStartComplaintWork && c.status === "In Progress at Aurawatt" && (
                               <button
                                 type="button"
@@ -18734,7 +18902,17 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                           </div>
                         )}
                       </TD>
-                      <TD>{complaintListTab === "dispatch" ? dispatchStageBadge(c) : complaintStatusBadge(c.status)}</TD>
+                      <TD>
+                        {complaintListTab === "dispatch" ? dispatchStageBadge(c) : complaintStatusBadge(c.status)}
+                        {c.status === HOLD_TICKET_STATUS && c.holdReason ? (
+                          <div className="mt-1 max-w-[220px] text-[11px] leading-4 text-gray-500">
+                            <span className="font-semibold text-gray-600">Reason:</span> {c.holdReason}
+                            {c.heldAt ? (
+                              <div className="text-gray-400">On hold since {new Date(c.heldAt).toLocaleDateString()}</div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </TD>
                     </TR>
                   ))
                 )}
@@ -18886,6 +19064,7 @@ export function ComplaintsSupplierPage() {
     if (status === "Resolved by Aurawatt") return <Badge color="green">{status}</Badge>;
     if (status === "Pending L3 Approval") return <Badge color="yellow">{status}</Badge>;
     if (status === "Replacement Requested" || status === "Awaiting Dispatch") return <Badge color="orange">{status}</Badge>;
+    if (status === "On Hold") return <Badge color="orange">{status}</Badge>;
     if (status === "Pending with Suppliers") return <Badge color="yellow">{status}</Badge>;
     if (status === "Resolved by Suppliers") return <Badge color="green">{status}</Badge>;
     return <Badge color="gray">{status}</Badge>;

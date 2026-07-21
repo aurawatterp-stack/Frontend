@@ -24,6 +24,7 @@ export const NAV: Array<{ id: string | null; label: string; icon: ReactNode; gro
   { id: "role-management", label: "Role Management", icon: <IconCog size={18} />, group: "admin" },
   { id: "customers", label: "Manage Customers", icon: <IconUsers size={18} />, group: "admin" },
   { id: "price-input", label: "Price Input Module", icon: <IconCoins size={18} />, group: "admin" },
+  { id: "support-videos", label: "Customer Support Videos", icon: <IconMessageCircle size={18} />, group: "admin" },
   { id: null, label: "INVENTORY", icon: null, group: "header" },
   { id: "serials", label: "Serial Management", icon: <IconTag size={18} />, group: "inventory" },
   { id: "products", label: "Manage Products", icon: <IconClipboardList size={18} />, group: "inventory" },

@@ -28,6 +28,7 @@ import {
   FaultyReturnsTrackingPage,
 } from "./pages";
 import EngineerAssignmentManagementPage from "./EngineerAssignmentManagementPage";
+import SupportVideosPage from "./SupportVideosPage";
 import type { AuthUser } from "../../lib/api";
 
 type User = AuthUser | null;
@@ -83,6 +84,7 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
     if (pageId === "engineer-assignment-management") return Boolean(isAdmin);
     if (pageId === "sales-assignment-management") return Boolean(isAdmin);
     if (pageId === "role-management") return Boolean(isAdmin);
+    if (pageId === "support-videos") return Boolean(isAdmin);
     if (isL3Engineer && pageId.startsWith("sales-")) return false;
     const req = PAGE_PERMISSIONS[pageId];
     if (!req) return true;
@@ -160,6 +162,7 @@ export default function IMSDashboard({ user, onLogout }: { user: User; onLogout:
       case "role-management": return <RoleManagementPage />;
       case "customers": return <CustomersPage />;
       case "price-input": return <PriceInputModulePage />;
+      case "support-videos": return <SupportVideosPage />;
       case "serials": return <SerialsPage />;
       case "products": return <ProductsPage />;
       case "series-bom": return <SeriesBOMPage />;

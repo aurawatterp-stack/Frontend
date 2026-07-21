@@ -13,6 +13,7 @@ import {
 } from "../lib/customerPortalApi";
 import { getIndiaDistricts, getIndiaStates } from "../lib/imsApi";
 import { SearchableSelect } from "../components/shared/SearchableSelect";
+import SupportVideoPanel from "../components/shared/SupportVideoPanel";
 
 type Step = "login" | "complaint" | "done";
 
@@ -212,6 +213,7 @@ export default function SupportClient() {
                 </div>
               ))}
             </div>
+            <SupportVideoPanel />
           </div>
 
           <div className="rounded-[2rem] border border-white/10 bg-white p-5 text-gray-900 shadow-2xl sm:p-7">
