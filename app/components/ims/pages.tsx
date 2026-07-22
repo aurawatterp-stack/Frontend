@@ -8513,8 +8513,12 @@ function getComplaintSlaState(complaint?: Complaint | null) {
     ? new Date(complaint.closedAt ?? complaint.updatedAt ?? Date.now()).getTime()
     : Date.now();
   const dueBase = complaint.slaDueAt ? new Date(complaint.slaDueAt).getTime() : Number.NaN;
-  const fallbackDue = complaint.slaStartedAt
-    ? new Date(complaint.slaStartedAt).getTime() + complaintSlaHours(complaint) * 60 * 60 * 1000
+  const escalationAnchor = complaint.slaStartedAt
+    ?? (complaint.status === "Escalated to L2" || complaint.status === "Escalated to L3"
+      ? complaint.escalatedAt ?? complaint.updatedAt ?? complaint.createdAt
+      : undefined);
+  const fallbackDue = escalationAnchor
+    ? new Date(escalationAnchor).getTime() + complaintSlaHours(complaint) * 60 * 60 * 1000
     : Number.NaN;
   const dueAt = Number.isFinite(dueBase) ? dueBase : fallbackDue;
   const totalSlaHours = complaintSlaHours(complaint);
@@ -14363,7 +14367,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [listOpen, setListOpen] = useState(false);
   const [complaintListSearch, setComplaintListSearch] = useState("");
   const [complaintListPage, setComplaintListPage] = useState(1);
-  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress">("active");
+  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress" | "escalatedl2">("active");
   const [reassignComplaintId, setReassignComplaintId] = useState("");
   const [reassignTargetRole, setReassignTargetRole] = useState<ServiceAssignmentRole>("L1 Engineer");
   const [reassignTargetEngineerId, setReassignTargetEngineerId] = useState("");
@@ -14454,7 +14458,6 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const isActiveComplaintStatus = (status: string) => !closedComplaintStatuses.includes(status);
   const normalizeComplaintSerial = (serial?: string) => serial?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
   const normalizeAssignmentText = (value?: string) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
-  const isL1ServiceUser = currentRole === "L1 Engineer" || currentRole === "L1 Backup Engineer";
   const isAssignedToCurrentEngineer = (complaint: Complaint) => {
     const currentUserName = normalizeAssignmentText(currentUser?.name);
     return (
@@ -14493,6 +14496,26 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       (Boolean(currentUser?.name) && (complaint.siteVisitEngineerName === currentUser?.name || complaint.engineerName === currentUser?.name))
     )
   );
+  const isCurrentOnsiteEngineer = (complaint?: Complaint | null) => Boolean(
+    complaint &&
+    (
+      complaint.siteVisitEngineerId === currentUser?.id ||
+      complaint.engineerName === currentUser?.name ||
+      complaint.siteVisitEngineerName === currentUser?.name
+    )
+  );
+  const isCurrentOnsiteAssigner = (complaint?: Complaint | null) => {
+    if (!complaint) return false;
+    const currentUserName = normalizeAssignmentText(currentUser?.name);
+    return (
+      complaint.siteVisitAssignedById === currentUser?.id ||
+      complaint.siteVisitRequestedById === currentUser?.id ||
+      (Boolean(currentUserName) && (
+        normalizeAssignmentText(complaint.siteVisitAssignedByName) === currentUserName ||
+        normalizeAssignmentText(complaint.siteVisitRequestedByName) === currentUserName
+      ))
+    );
+  };
   const complaintRows = useMemo(() => {
     const l1ComplaintStatuses = ["Assigned to Engineer", "Assigned for Onsite", "In Progress at Aurawatt", "Waiting Lobby"];
     const isClosed = (status: string) => closedComplaintStatuses.includes(status);
@@ -14519,7 +14542,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (currentServiceAssignmentRole === "L1 Engineer") {
       return sortedRows.filter((complaint) => (
         (l1ComplaintStatuses.includes(complaint.status) && isAssignedToCurrentEngineer(complaint)) ||
-        isOnsiteAssignedToCurrentUser(complaint)
+        isOnsiteAssignedToCurrentUser(complaint) ||
+        (complaint.status === HOLD_TICKET_STATUS && isAssignedToCurrentEngineer(complaint))
       ));
     }
 
@@ -14532,6 +14556,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         !isClosed(complaint.status) && (
           complaint.escalationLevel === "L2" ||
           complaint.status === "Escalated to L2" ||
+          (complaint.status === HOLD_TICKET_STATUS && isAssignedToCurrentUser(complaint)) ||
           isOnsiteAssignedToCurrentUser(complaint) ||
           (complaint.assignmentType === "Backup L1" && isAssignedToCurrentUser(complaint))
         )
@@ -14555,10 +14580,17 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     !isOnsiteAssignedToCurrentUser(complaint) &&
     !isDispatchTrackingComplaint(complaint)
   )), [complaintRows, currentUser?.id, currentUser?.name]);
-  const l1HoldRows = useMemo(
-    () => complaintRows.filter((complaint) => complaint.status === HOLD_TICKET_STATUS),
+  const holdRows = useMemo(
+    () => [...complaintRows]
+      .filter((complaint) => complaint.status === HOLD_TICKET_STATUS)
+      .sort((a, b) => (
+        new Date(b.heldAt ?? b.updatedAt ?? b.createdAt ?? b.dateOfComplaint).getTime() -
+        new Date(a.heldAt ?? a.updatedAt ?? a.createdAt ?? a.dateOfComplaint).getTime()
+      )),
     [complaintRows]
   );
+  const l1HoldRows = holdRows;
+  const adminHoldRows = holdRows;
   const l1WaitingRows = useMemo(() => complaintRows.filter((complaint) => (
     complaint.assignmentType !== "Backup L1" &&
     complaint.assignmentStatus === "Waiting" && complaint.status === "Waiting Lobby"
@@ -14567,7 +14599,16 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const dispatchTrackingRows = useMemo(() => complaintRows.filter(isDispatchTrackingComplaint), [complaintRows]);
   const adminWaitingRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Waiting Lobby"), [complaintRows]);
   const adminAssignedRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Assigned to Engineer"), [complaintRows]);
+  const adminEscalatedRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Escalated to L2"), [complaintRows]);
   const adminInProgressRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "In Progress at Aurawatt"), [complaintRows]);
+  const adminEscalatedByL2 = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const complaint of adminEscalatedRows) {
+      const key = complaint.assignedEngineerName || complaint.engineerName || "Unassigned";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [adminEscalatedRows]);
   const l2TeamNames = useMemo(() => new Set((myL1TeamRes.data ?? []).map((engineer) => engineer.name)), [myL1TeamRes.data]);
   const teamTicketRows = useMemo(() => {
     if (currentRole === "L3 Advanced OEM Support") {
@@ -14589,6 +14630,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (isServiceAdmin) {
       if (complaintListTab === "waiting") return adminWaitingRows;
       if (complaintListTab === "assigned") return adminAssignedRows;
+      if (complaintListTab === "escalatedl2") return adminEscalatedRows;
+      if (complaintListTab === "hold") return adminHoldRows;
       if (complaintListTab === "inprogress") return adminInProgressRows;
       return complaintRows;
     }
@@ -14616,7 +14659,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       return [...activeRows, ...l1WaitingRows.slice(0, 5 - activeRows.length)];
     }
     return activeRows;
-  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
+  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
   const l1ActiveTicketCount = useMemo(() => l1ActiveRows.length, [l1ActiveRows]);
   const dispatchTrackingCount = useMemo(() => dispatchTrackingRows.length, [dispatchTrackingRows]);
   const l1WaitingTicketCount = useMemo(() => complaintRows.filter((complaint) => (
@@ -14731,6 +14774,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const onsiteEngineerOptions = useMemo(() => serviceEngineersByRole.get(siteVisitRole) ?? [], [serviceEngineersByRole, siteVisitRole]);
   const pendingL3ApprovalComplaint = useMemo(() => complaintRows.find((complaint) => complaint.status === "Pending L3 Approval") ?? null, [complaintRows]);
   const selectedComplaint = complaintRows.find((complaint) => complaint.id === selectedComplaintId) ?? (currentRole === "L1 Engineer" ? null : pendingL3ApprovalComplaint ?? complaintRows[0] ?? null);
+  const selectedOnsiteProgressUpdates = selectedComplaint?.progressUpdates ?? [];
   const pendingL3ReplacementRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Pending L3 Approval"), [complaintRows]);
   const dispatchReplacementRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Awaiting Dispatch" || complaint.status === "Replacement Requested"), [complaintRows]);
   const selectedServiceComplaint = selectedComplaintId ? selectedComplaint : null;
@@ -15559,6 +15603,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
   const openOnsiteEscalationModal = () => {
     if (!selectedComplaint || serviceActionId) return;
+    if (!isCurrentOnsiteAssigner(selectedComplaint)) {
+      setFormError("Only the L2 engineer who assigned this onsite ticket can escalate it to L3.");
+      return;
+    }
     setOnsiteEscalationReason("");
     setOnsiteEscalationError("");
     setOnsiteEscalationOpen(true);
@@ -15573,6 +15621,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
   const submitOnsiteEscalation = async () => {
     if (!selectedComplaint) return;
+    if (!isCurrentOnsiteAssigner(selectedComplaint)) {
+      setOnsiteEscalationError("Only the L2 engineer who assigned this onsite ticket can escalate it to L3.");
+      return;
+    }
     const reason = onsiteEscalationReason.trim();
     const notes = currentOnsiteInspectionPayload().observationNotes?.trim() ?? "";
     if (!reason) {
@@ -15747,6 +15799,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       setFormError("Please select an active service ticket from the queue.");
       return;
     }
+    if (!isCurrentOnsiteEngineer(selectedComplaint)) {
+      setFormError("Only the onsite engineer can update this onsite form.");
+      return;
+    }
 
     setServiceActionId(selectedComplaint.id);
     setFormError("");
@@ -15769,6 +15825,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const sendOnsiteProgressToL2 = async () => {
     if (!selectedComplaint) {
       setFormError("Please select an active onsite ticket from the queue.");
+      return;
+    }
+    if (!isCurrentOnsiteEngineer(selectedComplaint)) {
+      setFormError("Only the onsite engineer can send progress back to L2.");
       return;
     }
 
@@ -15811,6 +15871,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const closeOnsiteWork = async (closeRemark = "") => {
     if (!selectedComplaint) {
       setFormError("Please select an active onsite ticket from the queue.");
+      return false;
+    }
+    if (!isCurrentOnsiteAssigner(selectedComplaint)) {
+      setFormError("Only the L2 engineer who assigned this onsite ticket can close it.");
       return false;
     }
 
@@ -17221,15 +17285,17 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <Badge color={onsiteInspection.observationNotes?.trim() ? "green" : "yellow"}>
                   {onsiteInspection.observationNotes?.trim() ? "Observation Added" : "Observation Pending"}
                 </Badge>
-                <button
-                  type="button"
-                  onClick={() => saveOnsiteInspection()}
-                  disabled={!selectedComplaint || serviceActionId === selectedComplaint?.id}
-                  className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {serviceActionId === selectedComplaint?.id ? "Updating..." : "Update Onsite Form"}
-                </button>
-                {isL1ServiceUser ? (
+                {selectedComplaint && isCurrentOnsiteEngineer(selectedComplaint) && (
+                  <button
+                    type="button"
+                    onClick={() => saveOnsiteInspection()}
+                    disabled={!selectedComplaint || serviceActionId === selectedComplaint?.id}
+                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {serviceActionId === selectedComplaint?.id ? "Updating..." : "Update Onsite Form"}
+                  </button>
+                )}
+                {selectedComplaint && isCurrentOnsiteEngineer(selectedComplaint) && (
                   <button
                     type="button"
                     onClick={sendOnsiteProgressToL2}
@@ -17238,7 +17304,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   >
                     {serviceActionId === selectedComplaint?.id ? "Sending..." : "Updates done, progress sent to L2"}
                   </button>
-                ) : (
+                )}
+                {selectedComplaint && isCurrentOnsiteAssigner(selectedComplaint) && (
                   <>
                     <button
                       type="button"
@@ -17260,6 +17327,27 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 )}
               </div>
             </div>
+
+            {selectedComplaint && selectedOnsiteProgressUpdates.length > 0 && (
+              <div className="mb-4 rounded-xl border border-blue-100 bg-white px-4 py-3">
+                <div className="text-xs font-bold uppercase tracking-widest text-blue-700">Onsite Progress</div>
+                <div className="mt-2 space-y-2">
+                  {selectedOnsiteProgressUpdates.slice(-3).reverse().map((update) => (
+                    <div key={update.id} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-gray-700">
+                          {update.byName || update.byRole || "Engineer"}
+                        </div>
+                        <div className="text-[11px] text-gray-400">
+                          {new Date(update.date || update.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{update.note}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {selectedComplaint?.customerReportedPictures && selectedComplaint.customerReportedPictures.length > 0 && (
               <div className="mb-4 rounded-lg border border-gray-200 bg-white p-3">
@@ -18544,8 +18632,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <div className="text-xs text-gray-500">
                   {isServiceEngineerRole
                     ? `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${currentRole === "L3 Advanced OEM Support" ? ` | Spare/Replacement: ${dispatchTrackingCount}` : ""}`
-                    : isServiceAdmin
-                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | In Progress: ${adminInProgressRows.length} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
+                  : isServiceAdmin
+                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
                       : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
                 </div>
               </div>
@@ -18571,6 +18659,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     { id: "active", label: "All Tickets", count: complaintRows.length },
                     { id: "waiting", label: "Waiting Lobby", count: adminWaitingRows.length },
                     { id: "assigned", label: "Assigned to Engineer", count: adminAssignedRows.length },
+                    { id: "escalatedl2", label: "Escalated to L2", count: adminEscalatedRows.length },
+                    { id: "hold", label: "Hold Tickets", count: adminHoldRows.length },
                     { id: "inprogress", label: "In Progress", count: adminInProgressRows.length },
                   ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
@@ -18588,7 +18678,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                         key={tab.id}
                         type="button"
                         onClick={() => {
-                          setComplaintListTab(tab.id as "active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress");
+                          setComplaintListTab(tab.id as "active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress" | "escalatedl2");
                           setReassignComplaintId("");
                           setReassignTargetEngineerId("");
                         }}
@@ -18603,13 +18693,32 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   })}
                 </div>
               )}
-              {complaintListTab === "hold" && isServiceEngineerRole && (
+              {complaintListTab === "hold" && (
                 <div className="mb-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs leading-5 text-orange-900">
                   <span className="font-bold uppercase tracking-widest">Hold Tickets</span>
                   <div className="mt-1">
-                    Tickets parked because work could not continue — for example the customer was not available at site. These do not use your
-                    5 active or 5 waiting slots, so new tickets keep flowing to you. Their SLA stays paused. Open the inspection form here to
-                    resolve one, or use Release Hold to move it back into your active queue.
+                    {isServiceAdmin
+                      ? "Tickets parked by engineers because work could not continue. Use this tab to monitor which tickets are on hold, who put them there, and why."
+                      : "Tickets parked because work could not continue — for example the customer was not available at site. These do not use your 5 active or 5 waiting slots, so new tickets keep flowing to you. Their SLA stays paused. Open the inspection form here to resolve one, or use Release Hold to move it back into your active queue."}
+                  </div>
+                </div>
+              )}
+              {complaintListTab === "escalatedl2" && (
+                <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-xs leading-5 text-teal-900">
+                  <span className="font-bold uppercase tracking-widest">Escalated to L2</span>
+                  <div className="mt-1">
+                    Use this tab to monitor tickets currently owned by L2 teams. The counts below show how many escalations each L2 engineer is handling right now.
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {adminEscalatedByL2.length > 0 ? adminEscalatedByL2.map(([name, count]) => (
+                      <span key={name} className="rounded-full border border-teal-200 bg-white px-3 py-1 text-[11px] font-semibold text-teal-800">
+                        {name}: {count}
+                      </span>
+                    )) : (
+                      <span className="rounded-full border border-teal-200 bg-white px-3 py-1 text-[11px] font-semibold text-teal-800">
+                        No escalations currently open.
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
@@ -18695,13 +18804,20 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                         <span className="font-mono text-sm font-bold text-gray-900">{selectedComplaint.productSerialNo || "No serial"}</span>
                         {complaintStatusBadge(selectedComplaint.status)}
                         <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-600">
-                          {selectedComplaint.assignedEngineerName || selectedComplaint.engineerName || "Unassigned"}
+                          {selectedComplaint.status === HOLD_TICKET_STATUS
+                            ? selectedComplaint.heldByName || selectedComplaint.assignedEngineerName || selectedComplaint.engineerName || "Held Ticket"
+                            : selectedComplaint.assignedEngineerName || selectedComplaint.engineerName || "Unassigned"}
                         </span>
                       </div>
                       <div className="mt-1 line-clamp-2 text-sm text-gray-700">{selectedComplaint.issueDescription}</div>
                       <div className="mt-1 text-xs text-gray-500">
                         Region: {selectedComplaint.region || "-"} | Priority: {selectedComplaint.priority || "Low"} | Contact: {selectedComplaint.customerPhone || "-"} | Source: {selectedComplaint.ticketSource || "ERP"}
                       </div>
+                      {selectedComplaint.status === HOLD_TICKET_STATUS ? (
+                        <div className="mt-1 text-xs text-orange-700">
+                          Hold by: {selectedComplaint.heldByName || "-"} | Reason: {selectedComplaint.holdReason || "-"} | From: {selectedComplaint.statusBeforeHold || "Assigned to Engineer"}
+                        </div>
+                      ) : null}
                       <div className="mt-1 text-xs font-semibold text-gray-600">
                         SLA: {getComplaintSlaState(selectedComplaint).remainingText} | {getComplaintSlaState(selectedComplaint).label}
                       </div>
@@ -18745,6 +18861,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     <TD colSpan={14} className="text-center text-gray-400 py-10">
                       {complaintListSearch.trim()
                         ? "No complaint matches this search."
+                        : complaintListTab === "escalatedl2"
+                          ? "No tickets currently escalated to L2."
                         : complaintListTab === "hold"
                           ? "No tickets on hold. Use Hold Ticket on an active ticket when the customer is unavailable, then resolve it from here later."
                           : complaintListTab === "dispatch"
@@ -18843,13 +18961,30 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                           </>
                         ) : (
                           <>
-                            <div className="font-semibold text-gray-900">{c.assignedEngineerName || c.engineerName || "Waiting Lobby"}</div>
-                            {c.escalatedByName && (
-                              <div className="text-blue-600">Escalated by {c.escalatedByName}</div>
-                            )}
-                            <div className="text-gray-500">
-                              {c.assignmentStatus === "Waiting" ? "Waiting Lobby" : "Assigned"}
+                            <div className="font-semibold text-gray-900">
+                              {c.status === HOLD_TICKET_STATUS
+                                ? c.heldByName || c.assignedEngineerName || c.engineerName || "Held Ticket"
+                                : c.assignedEngineerName || c.engineerName || "Waiting Lobby"}
                             </div>
+                            {c.status === HOLD_TICKET_STATUS ? (
+                              <>
+                                <div className="text-orange-600">
+                                  Held {c.heldAt ? `since ${new Date(c.heldAt).toLocaleDateString()}` : "recently"}
+                                </div>
+                                <div className="text-gray-500">
+                                  {c.statusBeforeHold ? `Before hold: ${c.statusBeforeHold}` : "On Hold"}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                {c.escalatedByName && (
+                                  <div className="text-blue-600">Escalated by {c.escalatedByName}</div>
+                                )}
+                                <div className="text-gray-500">
+                                  {c.assignmentStatus === "Waiting" ? "Waiting Lobby" : "Assigned"}
+                                </div>
+                              </>
+                            )}
                           </>
                         )}
                       </TD>
@@ -18904,9 +19039,21 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       </TD>
                       <TD>
                         {complaintListTab === "dispatch" ? dispatchStageBadge(c) : complaintStatusBadge(c.status)}
-                        {c.status === HOLD_TICKET_STATUS && c.holdReason ? (
+                        {c.status === HOLD_TICKET_STATUS ? (
                           <div className="mt-1 max-w-[220px] text-[11px] leading-4 text-gray-500">
-                            <span className="font-semibold text-gray-600">Reason:</span> {c.holdReason}
+                            {c.holdReason ? (
+                              <>
+                                <span className="font-semibold text-gray-600">Reason:</span> {c.holdReason}
+                              </>
+                            ) : null}
+                            <div>
+                              <span className="font-semibold text-gray-600">Held by:</span> {c.heldByName || "-"}
+                            </div>
+                            {c.statusBeforeHold ? (
+                              <div>
+                                <span className="font-semibold text-gray-600">Before hold:</span> {c.statusBeforeHold}
+                              </div>
+                            ) : null}
                             {c.heldAt ? (
                               <div className="text-gray-400">On hold since {new Date(c.heldAt).toLocaleDateString()}</div>
                             ) : null}
