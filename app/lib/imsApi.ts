@@ -318,6 +318,7 @@ export type Complaint = {
   slaStartedAt?: string;
   slaDueAt?: string;
   slaPaused?: boolean;
+  slaRemainingMsAtHold?: number;
   holdReason?: string;
   heldAt?: string;
   heldByName?: string;
@@ -1350,6 +1351,10 @@ export async function holdComplaint(id: string, holdReason: string) {
 
 export async function unholdComplaint(id: string) {
   return apiPut<Complaint>(`/api/complaints/${id}/unhold`, {});
+}
+
+export async function reopenComplaint(id: string, reopenReason?: string) {
+  return apiPut<Complaint>(`/api/complaints/${id}/reopen`, reopenReason ? { reopenReason } : {});
 }
 
 export async function updateComplaintService(id: string, input: Partial<Complaint> & {

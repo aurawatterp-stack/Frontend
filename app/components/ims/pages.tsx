@@ -95,6 +95,7 @@ import {
   startComplaintSla,
   holdComplaint,
   unholdComplaint,
+  reopenComplaint,
   updateComplaintStatus,
   uploadComplaintInverterPicture,
   getRawMaterialMeta,
@@ -8506,6 +8507,28 @@ function getComplaintSlaState(complaint?: Complaint | null) {
     };
   }
 
+  // When a ticket is put on hold (or otherwise paused), the SLA clock must stop
+  // dead. The backend unsets `slaDueAt` and stores the time that was left in
+  // `slaRemainingMsAtHold`, so we must NOT fall through to the `fallbackDue`
+  // reconstruction below — that would rebuild a due date from `slaStartedAt` and
+  // keep the "Overdue by ..." counter ticking while the ticket sits on hold.
+  const paused = complaint.slaPaused === true || complaint.status === HOLD_TICKET_STATUS;
+  if (paused) {
+    const remainingAtHold = complaint.slaRemainingMsAtHold;
+    const remainingText =
+      typeof remainingAtHold === "number" && Number.isFinite(remainingAtHold) && remainingAtHold > 0
+        ? `Paused · ${formatDuration(remainingAtHold)} left`
+        : "Timer Paused";
+    return {
+      color: "gray" as const,
+      label: "Timer Paused",
+      remainingText,
+      dueText: "-",
+      breached: false,
+      nearBreach: false,
+    };
+  }
+
   // Once a ticket is closed, the SLA clock must freeze at the moment it closed —
   // otherwise a resolved ticket's "Overdue by ..." text keeps growing forever.
   const closed = isClosedComplaint(complaint.status);
@@ -14380,6 +14403,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [holdTargetComplaint, setHoldTargetComplaint] = useState<Complaint | null>(null);
   const [holdReasonDraft, setHoldReasonDraft] = useState("");
   const [holdError, setHoldError] = useState("");
+  const [reopenTargetComplaint, setReopenTargetComplaint] = useState<Complaint | null>(null);
+  const [reopenReasonDraft, setReopenReasonDraft] = useState("");
+  const [reopenError, setReopenError] = useState("");
   const [onsiteAssignmentOpen, setOnsiteAssignmentOpen] = useState(false);
   const [onsiteAssignmentEngineerId, setOnsiteAssignmentEngineerId] = useState("");
   const [onsiteAssignmentEngineerName, setOnsiteAssignmentEngineerName] = useState("");
@@ -15555,15 +15581,23 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       return;
     }
 
-    setServiceActionId(holdTargetComplaint.id);
+    const heldId = holdTargetComplaint.id;
+    setServiceActionId(heldId);
     setHoldError("");
     setFormError("");
     setFormOk("");
     try {
-      await holdComplaint(holdTargetComplaint.id, reason);
+      await holdComplaint(heldId, reason);
       setFormOk("Ticket moved to Hold Tickets. Your active slot is now free for the next waiting ticket.");
       setHoldTargetComplaint(null);
       setHoldReasonDraft("");
+      // If the hold was triggered from inside the open inspection form, return the
+      // engineer to their ticket list — the held ticket has left active work and the
+      // freed slot is ready for the next waiting ticket.
+      if (selectedComplaintId === heldId) {
+        setSelectedComplaintId("");
+        setListOpen(true);
+      }
       complaintsRes.reload();
     } catch (err) {
       setHoldError(err instanceof Error ? err.message : "Failed to put the ticket on hold.");
@@ -15583,6 +15617,45 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       complaintsRes.reload();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to release the hold.");
+    } finally {
+      setServiceActionId("");
+    }
+  };
+
+  const openReopenModal = (complaint: Complaint) => {
+    if (serviceActionId) return;
+    setReopenTargetComplaint(complaint);
+    setReopenReasonDraft("");
+    setReopenError("");
+  };
+
+  const cancelReopenModal = () => {
+    if (serviceActionId) return;
+    setReopenTargetComplaint(null);
+    setReopenReasonDraft("");
+    setReopenError("");
+  };
+
+  const submitReopen = async () => {
+    if (!reopenTargetComplaint) return;
+    const reopenedId = reopenTargetComplaint.id;
+    const engineerName = reopenTargetComplaint.closedByName
+      || reopenTargetComplaint.assignedEngineerName
+      || reopenTargetComplaint.engineerName
+      || "the engineer who closed it";
+    setServiceActionId(reopenedId);
+    setReopenError("");
+    setFormError("");
+    setFormOk("");
+    try {
+      await reopenComplaint(reopenedId, reopenReasonDraft.trim() || undefined);
+      setFormOk(`Ticket re-opened and sent back to ${engineerName} for correction.`);
+      setReopenTargetComplaint(null);
+      setReopenReasonDraft("");
+      if (selectedClosedComplaintId === reopenedId) setSelectedClosedComplaintId("");
+      complaintsRes.reload();
+    } catch (err) {
+      setReopenError(err instanceof Error ? err.message : "Failed to re-open the ticket.");
     } finally {
       setServiceActionId("");
     }
@@ -16981,6 +17054,17 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     {serviceActionId === selectedComplaint.id ? "Sending..." : "Escalate to L2"}
                   </button>
                 )}
+                {selectedComplaint && (currentRole === "L1 Engineer" || currentRole === "L1 Backup Engineer") && !closedComplaintStatuses.includes(selectedComplaint.status) && selectedComplaint.status !== HOLD_TICKET_STATUS && !isWaitingLobbyComplaint(selectedComplaint) && (
+                  <button
+                    type="button"
+                    onClick={() => openHoldModal(selectedComplaint)}
+                    disabled={serviceActionId === selectedComplaint.id}
+                    title="Customer unavailable? Park this ticket so the next waiting ticket can start. The SLA timer pauses until you resume."
+                    className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 shadow-sm hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {serviceActionId === selectedComplaint.id ? "Holding..." : "Hold Ticket"}
+                  </button>
+                )}
                 {selectedComplaint?.status === "In Progress at Aurawatt" && currentRole !== "L1 Engineer" && currentRole !== "L1 Backup Engineer" && (
                   <button
                     type="button"
@@ -18290,13 +18374,26 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       {selectedClosedComplaint.closedByRole ? ` (${selectedClosedComplaint.closedByRole})` : ""}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => applyComplaintToForm(selectedClosedComplaint)}
-                    className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
-                  >
-                    Load Details
-                  </button>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applyComplaintToForm(selectedClosedComplaint)}
+                      className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+                    >
+                      Load Details
+                    </button>
+                    {isServiceAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => openReopenModal(selectedClosedComplaint)}
+                        disabled={serviceActionId === selectedClosedComplaint.id}
+                        title="Re-open this ticket and send it back to the engineer who closed it for further correction."
+                        className="rounded-lg border border-amber-300 bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {serviceActionId === selectedClosedComplaint.id ? "Re-opening..." : "Re-open Ticket"}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
@@ -18379,16 +18476,29 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     </TD>
                     <TD>{complaintStatusBadge(complaint.status)}</TD>
                     <TD>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedClosedComplaintId(complaint.id)}
-                        className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedClosedComplaint?.id === complaint.id
-                          ? "border-emerald-300 bg-emerald-100 text-emerald-700"
-                          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                          }`}
-                      >
-                        View
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedClosedComplaintId(complaint.id)}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedClosedComplaint?.id === complaint.id
+                            ? "border-emerald-300 bg-emerald-100 text-emerald-700"
+                            : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                            }`}
+                        >
+                          View
+                        </button>
+                        {isServiceAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => openReopenModal(complaint)}
+                            disabled={serviceActionId === complaint.id}
+                            title="Re-open this ticket and send it back to the engineer who closed it for further correction."
+                            className="rounded-lg border border-amber-300 bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {serviceActionId === complaint.id ? "Re-opening..." : "Re-open"}
+                          </button>
+                        )}
+                      </div>
                     </TD>
                   </TR>
                 ))
@@ -18477,6 +18587,71 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 className="rounded-lg border border-orange-200 bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {serviceActionId ? "Putting on hold..." : "Put On Hold"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reopenTargetComplaint && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-amber-100 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-widest text-amber-700">Re-open Ticket</div>
+                <div className="mt-1 text-sm text-gray-500">
+                  Ticket {reopenTargetComplaint.ticketNumber || reopenTargetComplaint.id} will be sent back to{" "}
+                  <span className="font-semibold text-gray-700">
+                    {reopenTargetComplaint.closedByName || reopenTargetComplaint.assignedEngineerName || reopenTargetComplaint.engineerName || "the engineer who closed it"}
+                  </span>{" "}
+                  for further correction. The SLA timer restarts and the ticket rejoins their active work.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={cancelReopenModal}
+                disabled={Boolean(serviceActionId)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close re-open modal"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <label className="mb-1 block text-xs font-bold uppercase tracking-widest text-gray-400">Reason (optional)</label>
+              <textarea
+                value={reopenReasonDraft}
+                onChange={(event) => {
+                  setReopenReasonDraft(event.target.value);
+                  setReopenError("");
+                }}
+                rows={4}
+                autoFocus
+                placeholder="Example: Customer reports the same error persists; re-check the DC string readings."
+                className="w-full resize-none rounded-xl border border-gray-200 px-3 py-1 text-sm text-gray-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+              />
+              {reopenError ? (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">
+                  {reopenError}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={cancelReopenModal}
+                disabled={Boolean(serviceActionId)}
+                className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitReopen}
+                disabled={Boolean(serviceActionId)}
+                className="rounded-lg border border-amber-200 bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {serviceActionId ? "Re-opening..." : "Re-open & Send to Engineer"}
               </button>
             </div>
           </div>
