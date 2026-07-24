@@ -73,7 +73,25 @@ export async function apiRequest<T>(
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const res = await fetch(url, { ...init, headers });
+  const method = (init.method ?? "GET").toUpperCase();
+  // Only auto-retry idempotent reads. Retrying a POST could create duplicate
+  // records (e.g. a second support ticket), so writes fail fast and the caller
+  // shows a retry prompt instead.
+  const maxAttempts = method === "GET" ? 2 : 1;
+  let res: Response;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      res = await fetch(url, { ...init, headers });
+      break;
+    } catch (networkErr) {
+      // fetch() rejects with a TypeError ("Failed to fetch") only for
+      // network-level failures: no connectivity, the request dropped mid-flight
+      // (common on weak mobile networks), or a blocked cross-origin redirect.
+      // Surface an actionable message instead of the raw browser error.
+      if (attempt < maxAttempts) continue;
+      throw new Error("Network error — please check your internet connection and try again.");
+    }
+  }
 
   let json: ApiOk<T> | ApiFail | null = null;
   try {
