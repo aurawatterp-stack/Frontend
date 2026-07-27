@@ -14517,25 +14517,31 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const isOnsiteAssignedToCurrentUser = (complaint: Complaint) => (
     complaint.siteVisitRequired === true &&
     complaint.status === "Assigned for Onsite" &&
-    (
-      complaint.siteVisitEngineerId === currentUser?.id ||
-      (Boolean(currentUser?.name) && (complaint.siteVisitEngineerName === currentUser?.name || complaint.engineerName === currentUser?.name))
-    )
+    isCurrentOnsiteEngineer(complaint)
   );
-  const isCurrentOnsiteEngineer = (complaint?: Complaint | null) => Boolean(
-    complaint &&
-    (
-      complaint.siteVisitEngineerId === currentUser?.id ||
-      complaint.engineerName === currentUser?.name ||
-      complaint.siteVisitEngineerName === currentUser?.name
-    )
-  );
+  // Names are compared normalized (and ids only when both sides exist) so a stray space or a
+  // different letter case in the assignment record never hides the onsite engineer's own actions.
+  const isCurrentOnsiteEngineer = (complaint?: Complaint | null) => {
+    if (!complaint) return false;
+    const currentUserName = normalizeAssignmentText(currentUser?.name);
+    return (
+      (Boolean(currentUser?.id) && complaint.siteVisitEngineerId === currentUser?.id) ||
+      (Boolean(currentUserName) && (
+        normalizeAssignmentText(complaint.siteVisitEngineerName) === currentUserName ||
+        normalizeAssignmentText(complaint.engineerName) === currentUserName
+      ))
+    );
+  };
+  /** Onsite engineer fills the form; Admin can also save on the engineer's behalf. */
+  const canEditOnsiteForm = (complaint?: Complaint | null) => Boolean(complaint) && (isCurrentOnsiteEngineer(complaint) || isServiceAdmin);
   const isCurrentOnsiteAssigner = (complaint?: Complaint | null) => {
     if (!complaint) return false;
     const currentUserName = normalizeAssignmentText(currentUser?.name);
     return (
-      complaint.siteVisitAssignedById === currentUser?.id ||
-      complaint.siteVisitRequestedById === currentUser?.id ||
+      (Boolean(currentUser?.id) && (
+        complaint.siteVisitAssignedById === currentUser?.id ||
+        complaint.siteVisitRequestedById === currentUser?.id
+      )) ||
       (Boolean(currentUserName) && (
         normalizeAssignmentText(complaint.siteVisitAssignedByName) === currentUserName ||
         normalizeAssignmentText(complaint.siteVisitRequestedByName) === currentUserName
@@ -14801,6 +14807,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const pendingL3ApprovalComplaint = useMemo(() => complaintRows.find((complaint) => complaint.status === "Pending L3 Approval") ?? null, [complaintRows]);
   const selectedComplaint = complaintRows.find((complaint) => complaint.id === selectedComplaintId) ?? (currentRole === "L1 Engineer" ? null : pendingL3ApprovalComplaint ?? complaintRows[0] ?? null);
   const selectedOnsiteProgressUpdates = selectedComplaint?.progressUpdates ?? [];
+  const onsiteActionBusy = Boolean(selectedComplaint) && serviceActionId === selectedComplaint?.id;
+  /** Empty string means "Save & Send to L2" is allowed; otherwise it explains what is still missing. */
+  const onsiteSaveDisabledReason = (() => {
+    if (!selectedComplaint) return "Select an onsite ticket from the queue first.";
+    if (!onsiteInspection.observationNotes?.trim()) return "Add the engineer observation before sending this ticket back to L2.";
+    if (selectedComplaint.status !== "Assigned for Onsite") return `This ticket is already at "${selectedComplaint.status}", so it cannot be sent to L2 again.`;
+    return "";
+  })();
   const pendingL3ReplacementRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Pending L3 Approval"), [complaintRows]);
   const dispatchReplacementRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Awaiting Dispatch" || complaint.status === "Replacement Requested"), [complaintRows]);
   const selectedServiceComplaint = selectedComplaintId ? selectedComplaint : null;
@@ -15872,7 +15886,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       setFormError("Please select an active service ticket from the queue.");
       return;
     }
-    if (!isCurrentOnsiteEngineer(selectedComplaint)) {
+    if (!canEditOnsiteForm(selectedComplaint)) {
       setFormError("Only the onsite engineer can update this onsite form.");
       return;
     }
@@ -15900,7 +15914,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       setFormError("Please select an active onsite ticket from the queue.");
       return;
     }
-    if (!isCurrentOnsiteEngineer(selectedComplaint)) {
+    if (!canEditOnsiteForm(selectedComplaint)) {
       setFormError("Only the onsite engineer can send progress back to L2.");
       return;
     }
@@ -17369,7 +17383,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <Badge color={onsiteInspection.observationNotes?.trim() ? "green" : "yellow"}>
                   {onsiteInspection.observationNotes?.trim() ? "Observation Added" : "Observation Pending"}
                 </Badge>
-                {selectedComplaint && isCurrentOnsiteEngineer(selectedComplaint) && (
+                {selectedComplaint && canEditOnsiteForm(selectedComplaint) && (
                   <button
                     type="button"
                     onClick={() => saveOnsiteInspection()}
@@ -17379,7 +17393,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     {serviceActionId === selectedComplaint?.id ? "Updating..." : "Update Onsite Form"}
                   </button>
                 )}
-                {selectedComplaint && isCurrentOnsiteEngineer(selectedComplaint) && (
+                {selectedComplaint && canEditOnsiteForm(selectedComplaint) && (
                   <button
                     type="button"
                     onClick={sendOnsiteProgressToL2}
@@ -17715,6 +17729,39 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 resize-none"
               />
             </div>
+
+            {selectedComplaint && canEditOnsiteForm(selectedComplaint) && (
+              <div className="mt-4 rounded-xl border border-blue-100 bg-white p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-widest text-blue-700">Save Onsite Progress</div>
+                    <div className="mt-1 text-[11px] text-gray-500">
+                      {onsiteSaveDisabledReason
+                        ? onsiteSaveDisabledReason
+                        : "Save keeps the form as a draft. Save & Send hands the ticket back to L2 for review and closure."}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => saveOnsiteInspection()}
+                      disabled={onsiteActionBusy}
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {onsiteActionBusy ? "Saving..." : "💾 Save Onsite Details"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={sendOnsiteProgressToL2}
+                      disabled={onsiteActionBusy || Boolean(onsiteSaveDisabledReason)}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {onsiteActionBusy ? "Sending..." : "Save & Send to L2"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {serviceStage === "l2" && (
