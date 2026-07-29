@@ -8178,6 +8178,20 @@ const SERVICE_STAGE_TABS = [
 ] as const;
 const COMPLAINT_LIST_PAGE_SIZE = 10;
 type ServiceStageId = (typeof SERVICE_STAGE_TABS)[number]["id"];
+/** Tabs inside the Consumer Complaint Queue modal (the "View Complaints" popup). */
+type ComplaintListTabId =
+  | "active"
+  | "waiting"
+  | "hold"
+  | "onsite"
+  | "sentonsite"
+  | "closed"
+  | "dispatch"
+  | "team"
+  | "l1backup"
+  | "assigned"
+  | "inprogress"
+  | "escalatedl2";
 const DISPATCH_TRACKING_STATUSES = ["Spare Requested", "Replacement Requested", "Awaiting Dispatch", "Dispatch in Progress", "Dispatched"];
 /** Held tickets sit outside the 5 active / 5 lobby capacity counters. */
 const HOLD_TICKET_STATUS = "On Hold";
@@ -8507,12 +8521,17 @@ function getComplaintSlaState(complaint?: Complaint | null) {
     };
   }
 
-  // When a ticket is put on hold (or otherwise paused), the SLA clock must stop
+  // Closing a ticket also sets `slaPaused` (the backend freezes the clock at close time), so the
+  // closed check has to be resolved BEFORE the paused branch below — otherwise every resolved
+  // ticket renders as "Timer Paused" instead of the "Closed 20m early" summary.
+  const closed = isClosedComplaint(complaint.status);
+
+  // When a live ticket is put on hold (or otherwise paused), the SLA clock must stop
   // dead. The backend unsets `slaDueAt` and stores the time that was left in
   // `slaRemainingMsAtHold`, so we must NOT fall through to the `fallbackDue`
   // reconstruction below — that would rebuild a due date from `slaStartedAt` and
   // keep the "Overdue by ..." counter ticking while the ticket sits on hold.
-  const paused = complaint.slaPaused === true || complaint.status === HOLD_TICKET_STATUS;
+  const paused = !closed && (complaint.slaPaused === true || complaint.status === HOLD_TICKET_STATUS);
   if (paused) {
     const remainingAtHold = complaint.slaRemainingMsAtHold;
     const remainingText =
@@ -8531,7 +8550,6 @@ function getComplaintSlaState(complaint?: Complaint | null) {
 
   // Once a ticket is closed, the SLA clock must freeze at the moment it closed —
   // otherwise a resolved ticket's "Overdue by ..." text keeps growing forever.
-  const closed = isClosedComplaint(complaint.status);
   const now = closed
     ? new Date(complaint.closedAt ?? complaint.updatedAt ?? Date.now()).getTime()
     : Date.now();
@@ -8543,7 +8561,17 @@ function getComplaintSlaState(complaint?: Complaint | null) {
   const fallbackDue = escalationAnchor
     ? new Date(escalationAnchor).getTime() + complaintSlaHours(complaint) * 60 * 60 * 1000
     : Number.NaN;
-  const dueAt = Number.isFinite(dueBase) ? dueBase : fallbackDue;
+  // A ticket resolved straight out of Hold has no `slaDueAt` (hold unsets it), so rebuild the
+  // frozen due date from the time that was still left when it was held.
+  const remainingAtHold = complaint.slaRemainingMsAtHold;
+  const holdDue = closed && typeof remainingAtHold === "number" && Number.isFinite(remainingAtHold)
+    ? now + (remainingAtHold > 0 ? remainingAtHold : -1) // 0 left at hold time means the SLA had already run out
+    : Number.NaN;
+  const dueAt = Number.isFinite(dueBase)
+    ? dueBase
+    : Number.isFinite(holdDue)
+      ? holdDue
+      : fallbackDue;
   const totalSlaHours = complaintSlaHours(complaint);
   const hasDueAt = Number.isFinite(dueAt);
   const breached = hasDueAt ? dueAt < now : false;
@@ -8552,12 +8580,12 @@ function getComplaintSlaState(complaint?: Complaint | null) {
   const nearBreach = !closed && !breached && hasDueAt ? remainingMs <= nearBreachWindow : false;
   const color = !hasDueAt ? "gray" : breached ? "red" : nearBreach ? "orange" : "green";
   const label = !hasDueAt
-    ? "Not Started"
+    ? (closed ? "Resolved" : "Not Started")
     : closed
       ? (breached ? "Resolved (SLA Breached)" : "Resolved Within SLA")
       : (breached ? "SLA Breached" : nearBreach ? "Near Breach" : "Within SLA");
   const remainingText = !hasDueAt
-    ? "Timer Paused"
+    ? (closed ? "Closed (SLA timer never started)" : "Timer Paused")
     : closed
       ? (breached ? `Closed ${formatDuration(remainingMs)} late` : `Closed ${formatDuration(remainingMs)} early`)
       : (breached ? `Overdue by ${formatDuration(remainingMs)}` : `Remaining ${formatDuration(remainingMs)}`);
@@ -14390,7 +14418,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [listOpen, setListOpen] = useState(false);
   const [complaintListSearch, setComplaintListSearch] = useState("");
   const [complaintListPage, setComplaintListPage] = useState(1);
-  const [complaintListTab, setComplaintListTab] = useState<"active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress" | "escalatedl2">("active");
+  const [complaintListTab, setComplaintListTab] = useState<ComplaintListTabId>("active");
   const [reassignComplaintId, setReassignComplaintId] = useState("");
   const [reassignTargetRole, setReassignTargetRole] = useState<ServiceAssignmentRole>("L1 Engineer");
   const [reassignTargetEngineerId, setReassignTargetEngineerId] = useState("");
@@ -14590,6 +14618,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
           complaint.status === "Escalated to L2" ||
           (complaint.status === HOLD_TICKET_STATUS && isAssignedToCurrentUser(complaint)) ||
           isOnsiteAssignedToCurrentUser(complaint) ||
+          // A ticket handed to an onsite engineer must stay with the L2 who sent it, whatever
+          // status/level it now carries — that is how it is tracked back to closure.
+          isCurrentOnsiteAssigner(complaint) ||
           (complaint.assignmentType === "Backup L1" && isAssignedToCurrentUser(complaint))
         )
       ));
@@ -14605,13 +14636,54 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     return sortedRows;
   }, [complaintsRes.data, currentServiceAssignmentRole, currentUser?.id, currentUser?.name]);
   const isDispatchTrackingComplaint = (complaint: Complaint) => DISPATCH_TRACKING_STATUSES.includes(complaint.status);
+  /**
+   * Tickets this user (typically L2) handed to an onsite engineer and that are still sitting with
+   * that engineer. They are tracked in the "Sent for Onsite" tab instead of the sender's own active
+   * queue — the work is on the onsite engineer's desk, so it must not eat one of the sender's 5
+   * active slots (which is how these tickets used to fall off the bottom of the capped list).
+   */
+  const isAwaitingOnsiteBySender = (complaint: Complaint) => (
+    complaint.status === "Assigned for Onsite" &&
+    isCurrentOnsiteAssigner(complaint) &&
+    !isCurrentOnsiteEngineer(complaint)
+  );
   const l1ActiveRows = useMemo(() => complaintRows.filter((complaint) => (
     complaint.assignmentType !== "Backup L1" &&
     !(complaint.assignmentStatus === "Waiting" && complaint.status === "Waiting Lobby") &&
     complaint.status !== HOLD_TICKET_STATUS &&
     !isOnsiteAssignedToCurrentUser(complaint) &&
+    !isAwaitingOnsiteBySender(complaint) &&
     !isDispatchTrackingComplaint(complaint)
   )), [complaintRows, currentUser?.id, currentUser?.name]);
+  /**
+   * Everything this user sent out for an onsite visit that is not closed yet — both the tickets
+   * still with the onsite engineer and the ones already sent back ("Received back"), so the sender
+   * can follow a ticket from dispatch to closure in one place.
+   */
+  const sentForOnsiteRows = useMemo(() => [...complaintRows]
+    .filter((complaint) => (
+      complaint.siteVisitRequired === true &&
+      isCurrentOnsiteAssigner(complaint) &&
+      !isCurrentOnsiteEngineer(complaint) &&
+      !closedComplaintStatuses.includes(complaint.status)
+    ))
+    .sort((a, b) => (
+      new Date(b.siteVisitRequestedAt ?? b.updatedAt ?? b.createdAt ?? b.dateOfComplaint).getTime() -
+      new Date(a.siteVisitRequestedAt ?? a.updatedAt ?? a.createdAt ?? a.dateOfComplaint).getTime()
+    )),
+  [complaintRows, currentUser?.id, currentUser?.name]);
+  /**
+   * Closed tickets for the queue popup's "Closed Tickets" tab. Read straight off the API response
+   * (the backend already scopes it to what this login may see) because the role buckets that build
+   * `complaintRows` deliberately drop closed tickets.
+   */
+  const closedQueueRows = useMemo(() => [...(complaintsRes.data?.data ?? [])]
+    .filter((complaint) => closedComplaintStatuses.includes(complaint.status))
+    .sort((a, b) => (
+      new Date(b.closedAt ?? b.updatedAt ?? b.dateOfComplaint).getTime() -
+      new Date(a.closedAt ?? a.updatedAt ?? a.dateOfComplaint).getTime()
+    )),
+  [complaintsRes.data]);
   const holdRows = useMemo(
     () => [...complaintRows]
       .filter((complaint) => complaint.status === HOLD_TICKET_STATUS)
@@ -14665,6 +14737,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       if (complaintListTab === "escalatedl2") return adminEscalatedRows;
       if (complaintListTab === "hold") return adminHoldRows;
       if (complaintListTab === "inprogress") return adminInProgressRows;
+      if (complaintListTab === "closed") return closedQueueRows;
       return complaintRows;
     }
     if (!isServiceEngineerRole) return complaintRows;
@@ -14676,6 +14749,12 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     }
     if (complaintListTab === "onsite") {
       return complaintRows.filter(isOnsiteAssignedToCurrentUser);
+    }
+    if (complaintListTab === "sentonsite") {
+      return sentForOnsiteRows;
+    }
+    if (complaintListTab === "closed") {
+      return closedQueueRows;
     }
     if (complaintListTab === "dispatch") {
       return dispatchTrackingRows;
@@ -14691,7 +14770,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       return [...activeRows, ...l1WaitingRows.slice(0, 5 - activeRows.length)];
     }
     return activeRows;
-  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, currentUser?.id, currentUser?.name]);
+  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, sentForOnsiteRows, closedQueueRows, currentUser?.id, currentUser?.name]);
   const l1ActiveTicketCount = useMemo(() => l1ActiveRows.length, [l1ActiveRows]);
   const dispatchTrackingCount = useMemo(() => dispatchTrackingRows.length, [dispatchTrackingRows]);
   const l1WaitingTicketCount = useMemo(() => complaintRows.filter((complaint) => (
@@ -14701,6 +14780,13 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const l1VisibleActiveTicketCount = useMemo(() => Math.min(5, l1ActiveRows.length + l1PromotedWaitingCount), [l1ActiveRows.length, l1PromotedWaitingCount]);
   const l1VisibleWaitingTicketCount = useMemo(() => Math.max(0, l1WaitingTicketCount - l1PromotedWaitingCount), [l1WaitingTicketCount, l1PromotedWaitingCount]);
   const l1OnsiteTicketCount = useMemo(() => complaintRows.filter(isOnsiteAssignedToCurrentUser).length, [complaintRows, currentUser?.id, currentUser?.name]);
+  const sentForOnsiteCount = useMemo(() => sentForOnsiteRows.length, [sentForOnsiteRows]);
+  /** Sent-for-onsite tickets already returned by the engineer and waiting for the sender to close. */
+  const sentForOnsiteReceivedCount = useMemo(
+    () => sentForOnsiteRows.filter((complaint) => complaint.status !== "Assigned for Onsite").length,
+    [sentForOnsiteRows]
+  );
+  const closedQueueCount = useMemo(() => closedQueueRows.length, [closedQueueRows]);
   const filteredComplaintRows = useMemo(() => {
     const query = complaintListSearch.trim().toLowerCase();
     if (!query) return visibleComplaintRows;
@@ -15820,6 +15906,20 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (complaint.status === "Escalated to L3" || complaint.escalationLevel === "L3") return "l3";
     if (complaint.status === "Escalated to L2" || complaint.escalationLevel === "L2") return "l2";
     return "l1";
+  };
+
+  /**
+   * Rows in the queue popup's Closed Tickets tab open the Closed Tickets stage, which carries the
+   * full closure report (resolution, close remark, L1/L2/L3 work). The stage's own search and date
+   * filters are cleared first so the picked ticket is guaranteed to be in that filtered list.
+   */
+  const openClosedTicketDetails = (complaint: Complaint) => {
+    setClosedTicketSearch("");
+    setClosedTicketFromDate("");
+    setClosedTicketToDate("");
+    setSelectedClosedComplaintId(complaint.id);
+    setServiceStage("closed");
+    setListOpen(false);
   };
 
   const openInspectionForm = async (complaint: Complaint, fallbackStage?: ServiceStageId) => {
@@ -18853,9 +18953,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <div className="text-base font-bold text-gray-900">Consumer Complaint Queue</div>
                 <div className="text-xs text-gray-500">
                   {isServiceEngineerRole
-                    ? `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${currentRole === "L3 Advanced OEM Support" ? ` | Spare/Replacement: ${dispatchTrackingCount}` : ""}`
+                    ? `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${sentForOnsiteCount > 0 ? ` | Sent for Onsite: ${sentForOnsiteCount}` : ""}${currentRole === "L3 Advanced OEM Support" ? ` | Spare/Replacement: ${dispatchTrackingCount}` : ""} | Closed: ${closedQueueCount}`
                   : isServiceAdmin
-                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
+                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | Closed: ${closedQueueCount} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
                       : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
                 </div>
               </div>
@@ -18884,15 +18984,22 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     { id: "escalatedl2", label: "Escalated to L2", count: adminEscalatedRows.length },
                     { id: "hold", label: "Hold Tickets", count: adminHoldRows.length },
                     { id: "inprogress", label: "In Progress", count: adminInProgressRows.length },
+                    { id: "closed", label: "Closed Tickets", count: closedQueueCount },
                   ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
                     { id: "waiting", label: "Waiting Lobby", count: Math.min(l1VisibleWaitingTicketCount, 5) },
                     { id: "hold", label: "Hold Tickets", count: l1HoldRows.length },
                     { id: "onsite", label: "Onsite", count: l1OnsiteTicketCount },
+                    // Shown to the roles that dispatch onsite visits (L2/L3), and to anyone else
+                    // who currently has a ticket out with an onsite engineer.
+                    ...((currentRole === "L2 Technical Team" || currentRole === "L3 Advanced OEM Support" || sentForOnsiteCount > 0)
+                      ? [{ id: "sentonsite", label: "Sent for Onsite by Me", count: sentForOnsiteCount }]
+                      : []),
                     ...((amIL1BackupRes.data?.isL1Backup || l1BackupRows.length > 0) ? [{ id: "l1backup", label: "L1 Backup", count: l1BackupRows.length }] : []),
                     ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "dispatch", label: "Spare/Replacement", count: dispatchTrackingCount }] : []),
                     ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "team", label: "All L1/L2 Tickets", count: teamTicketRows.length }] : []),
                     ...(currentRole === "L2 Technical Team" ? [{ id: "team", label: "All L1 Tickets", count: teamTicketRows.length }] : []),
+                    { id: "closed", label: "Closed Tickets", count: closedQueueCount },
                   ]).map((tab) => {
                     const active = complaintListTab === tab.id;
                     return (
@@ -18900,7 +19007,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                         key={tab.id}
                         type="button"
                         onClick={() => {
-                          setComplaintListTab(tab.id as "active" | "waiting" | "hold" | "onsite" | "dispatch" | "team" | "l1backup" | "assigned" | "inprogress" | "escalatedl2");
+                          setComplaintListTab(tab.id as ComplaintListTabId);
                           setReassignComplaintId("");
                           setReassignTargetEngineerId("");
                         }}
@@ -18922,6 +19029,29 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     {isServiceAdmin
                       ? "Tickets parked by engineers because work could not continue. Use this tab to monitor which tickets are on hold, who put them there, and why."
                       : "Tickets parked because work could not continue — for example the customer was not available at site. These do not use your 5 active or 5 waiting slots, so new tickets keep flowing to you. Their SLA stays paused. Open the inspection form here to resolve one, or use Release Hold to move it back into your active queue."}
+                  </div>
+                </div>
+              )}
+              {complaintListTab === "sentonsite" && (
+                <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-900">
+                  <span className="font-bold uppercase tracking-widest">Sent for Onsite by Me</span>
+                  <div className="mt-1">
+                    Every ticket you handed to an onsite engineer stays here until it is closed, so you can track who is working it and whether the visit is done. While a ticket sits with the onsite engineer it does not use one of your 5 active slots. As soon as the engineer submits the progress update and sends the ticket back, it is marked <b>Received back</b> here and returns to your active queue for closure.
+                  </div>
+                  {sentForOnsiteReceivedCount > 0 && (
+                    <div className="mt-2 inline-flex rounded-full border border-indigo-200 bg-white px-3 py-1 text-[11px] font-semibold text-indigo-800">
+                      {sentForOnsiteReceivedCount} ticket{sentForOnsiteReceivedCount === 1 ? "" : "s"} received back and waiting for you to close
+                    </div>
+                  )}
+                </div>
+              )}
+              {complaintListTab === "closed" && (
+                <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
+                  <span className="font-bold uppercase tracking-widest">Closed Tickets</span>
+                  <div className="mt-1">
+                    {isServiceAdmin
+                      ? "Every resolved ticket, newest first — the same list as the Closed Tickets stage outside this popup, so completed work can be reviewed without leaving the queue. Search above by ticket ID, serial, customer or engineer, and use View Ticket to open the full closure report."
+                      : "Tickets you have already resolved, newest first — the same list as the Closed Tickets stage outside this popup, so you can check completed work without leaving the queue. Search above by ticket ID, serial or customer, and use View Ticket to open the readings, resolution and closure remark. Closed tickets cannot be edited from here."}
                   </div>
                 </div>
               )}
@@ -19087,6 +19217,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                           ? "No tickets currently escalated to L2."
                         : complaintListTab === "hold"
                           ? "No tickets on hold. Use Hold Ticket on an active ticket when the customer is unavailable, then resolve it from here later."
+                          : complaintListTab === "sentonsite"
+                          ? "You have not sent any ticket for an onsite visit yet. Tickets you assign to an onsite engineer appear here until they come back and are closed."
+                          : complaintListTab === "closed"
+                          ? "No closed tickets yet. Tickets you resolve will be listed here."
                           : complaintListTab === "dispatch"
                           ? "No spare or replacement requests pending. Tickets appear here once sent for spare/replacement and stay until dispatched and closed."
                           : complaintListTab === "team"
@@ -19117,7 +19251,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                             {(!isWaitingLobbyComplaint(c) || (complaintListTab === "active" && l1PromotedRowIds.has(c.id))) ? (
                               <button
                                 type="button"
-                                onClick={() => openInspectionForm(c, complaintListTab === "onsite" ? "onsite" : undefined)}
+                                onClick={() => (complaintListTab === "closed"
+                                  ? openClosedTicketDetails(c)
+                                  : openInspectionForm(c, complaintListTab === "onsite" ? "onsite" : undefined))}
                                 disabled={serviceActionId === c.id}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition disabled:cursor-not-allowed disabled:opacity-60 ${selectedComplaint?.id === c.id
                                   ? "border-amber-300 bg-amber-100 text-amber-700"
@@ -19128,7 +19264,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                               >
                                 {serviceActionId === c.id
                                   ? "Opening..."
-                                  : c.serviceStartedAt ? "Open Inspection Form" : "Start Inspection Form"}
+                                  : complaintListTab === "closed"
+                                    ? "View Ticket"
+                                    : c.serviceStartedAt ? "Open Inspection Form" : "Start Inspection Form"}
                               </button>
                             ) : null}
                             {isServiceEngineerRole && complaintListTab === "active" && !isWaitingLobbyComplaint(c) && !l1PromotedRowIds.has(c.id) && !closedComplaintStatuses.includes(c.status) && (
@@ -19179,6 +19317,16 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                             <div className="text-blue-600">Assigned by {c.siteVisitAssignedByName || c.assignedEngineerName || "L2 Team"}</div>
                             <div className="text-gray-500">
                               Visit: {c.siteVisitScheduledDate ? new Date(c.siteVisitScheduledDate).toLocaleDateString() : "Date pending"}
+                            </div>
+                          </>
+                        ) : complaintListTab === "sentonsite" ? (
+                          <>
+                            <div className="font-semibold text-gray-900">{c.siteVisitEngineerName || c.engineerName || "Onsite Engineer"}</div>
+                            <div className={c.status === "Assigned for Onsite" ? "text-indigo-600" : "text-emerald-600"}>
+                              {c.status === "Assigned for Onsite" ? "With onsite engineer" : "Received back — ready to close"}
+                            </div>
+                            <div className="text-gray-500">
+                              Sent {c.siteVisitRequestedAt ? formatDateTimeIST(c.siteVisitRequestedAt) : "-"}
                             </div>
                           </>
                         ) : (
