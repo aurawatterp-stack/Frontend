@@ -14562,9 +14562,19 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   };
   /** Onsite engineer fills the form; Admin can also save on the engineer's behalf. */
   const canEditOnsiteForm = (complaint?: Complaint | null) => Boolean(complaint) && (isCurrentOnsiteEngineer(complaint) || isServiceAdmin);
+  /**
+   * True when the current user is the one who sent this ticket out for an onsite visit.
+   *
+   * The ticket's workflow history is checked as well as the recorded dispatcher: tickets dispatched
+   * before the dispatch-ownership fix had `siteVisitAssignedBy*` / `siteVisitRequestedBy*`
+   * overwritten with the onsite engineer, and the history is the only place that still names the L2
+   * who actually sent them. Dispatch events performed by the onsite engineer themselves are exactly
+   * those overwrites, so they are ignored here.
+   */
   const isCurrentOnsiteAssigner = (complaint?: Complaint | null) => {
     if (!complaint) return false;
     const currentUserName = normalizeAssignmentText(currentUser?.name);
+    const onsiteEngineerName = normalizeAssignmentText(complaint.siteVisitEngineerName);
     return (
       (Boolean(currentUser?.id) && (
         complaint.siteVisitAssignedById === currentUser?.id ||
@@ -14573,6 +14583,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       (Boolean(currentUserName) && (
         normalizeAssignmentText(complaint.siteVisitAssignedByName) === currentUserName ||
         normalizeAssignmentText(complaint.siteVisitRequestedByName) === currentUserName
+      )) ||
+      (complaint.workflowHistory ?? []).some((event) => (
+        event.action === "Assigned for onsite" &&
+        normalizeAssignmentText(event.byName) !== onsiteEngineerName &&
+        (
+          (Boolean(currentUser?.id) && event.by === currentUser?.id) ||
+          (Boolean(currentUserName) && normalizeAssignmentText(event.byName) === currentUserName)
+        )
       ))
     );
   };
