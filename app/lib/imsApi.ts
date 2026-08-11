@@ -221,6 +221,7 @@ export type Sale = {
   courierDocketNo?: string;
   courierDocketAttachmentName?: string;
   courierDocketAttachmentUrl?: string;
+  taxInvoiceNo?: string;
   taxInvoiceAttachmentName?: string;
   taxInvoiceAttachmentUrl?: string;
   ewayBillAttachmentName?: string;
@@ -1198,7 +1199,7 @@ export async function updateAccountsDocuments(
   id: string,
   input: Partial<Pick<
     Sale,
-    "taxInvoiceAttachmentName" | "taxInvoiceAttachmentUrl" | "ewayBillAttachmentName" | "ewayBillAttachmentUrl" | "paymentStatus"
+    "taxInvoiceNo" | "taxInvoiceAttachmentName" | "taxInvoiceAttachmentUrl" | "ewayBillAttachmentName" | "ewayBillAttachmentUrl" | "paymentStatus"
   >>
 ) {
   return apiPut<Sale>(`/api/sales/${id}/accounts`, input);

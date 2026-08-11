@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { AURAWATT_PRICE_STATES } from "../../lib/aurawattPricing";
+import { INDIA_STATES } from "../../lib/aurawattPricing";
 import { createUser, deleteUser, listUsers, updateUser, type UserSafe } from "../../lib/imsApi";
 import { Badge, PageHeader, PrimaryBtn, SearchBar, Table, TD, TR } from "./ui";
 import { IconPencil, IconPlus, IconTrash, IconUsers, IconX } from "../icons/Icons";
@@ -71,15 +71,7 @@ function ModalShell({
 }
 
 function stateLabel(state: string) {
-  switch (state) {
-    case "UP": return "Uttar Pradesh";
-    case "MP": return "Madhya Pradesh";
-    case "Bihar": return "Bihar";
-    case "Haryana": return "Haryana";
-    case "Rajasthan": return "Rajasthan";
-    case "Punjab": return "Punjab";
-    default: return state;
-  }
+  return INDIA_STATES.find((option) => option.value === state)?.label ?? state;
 }
 
 type SalesUserForm = {
@@ -112,6 +104,7 @@ export default function SalesAssignmentManagementPage() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [recentCredential, setRecentCredential] = useState<{ email: string; password: string } | null>(null);
+  const [stateSearch, setStateSearch] = useState("");
 
   const salesUsers = useMemo(() => {
     const rows = usersRes.data ?? [];
@@ -140,6 +133,7 @@ export default function SalesAssignmentManagementPage() {
     setEditingId("");
     setForm(EMPTY_FORM);
     setError("");
+    setStateSearch("");
     setRecentCredential(null);
     setModalOpen(true);
   };
@@ -156,9 +150,16 @@ export default function SalesAssignmentManagementPage() {
       assignedStates: user.assignedStates?.length ? user.assignedStates : ["UP"],
     });
     setError("");
+    setStateSearch("");
     setRecentCredential(null);
     setModalOpen(true);
   };
+
+  const visibleStateOptions = useMemo(() => {
+    const query = stateSearch.trim().toLowerCase();
+    if (!query) return INDIA_STATES;
+    return INDIA_STATES.filter((option) => option.label.toLowerCase().includes(query));
+  }, [stateSearch]);
 
   const toggleState = (state: string) => {
     setForm((current) => ({
@@ -360,17 +361,48 @@ export default function SalesAssignmentManagementPage() {
           </div>
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="mb-3 text-sm font-bold text-slate-800">Assigned States</div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {AURAWATT_PRICE_STATES.map((state) => {
-                const checked = form.assignedStates.includes(state);
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-bold text-slate-800">
+                Assigned States
+                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  {form.assignedStates.length} selected
+                </span>
+              </div>
+              <input
+                value={stateSearch}
+                onChange={(event) => setStateSearch(event.target.value)}
+                placeholder="Search state / UT..."
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100 sm:w-56"
+              />
+            </div>
+            {form.assignedStates.length ? (
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {form.assignedStates.map((state) => (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() => toggleState(state)}
+                    title="Remove"
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                  >
+                    {stateLabel(state)} <IconX size={12} />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleStateOptions.map((option) => {
+                const checked = form.assignedStates.includes(option.value);
                 return (
-                  <label key={state} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm transition ${checked ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700"}`}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleState(state)} className="h-4 w-4 accent-amber-500" />
-                    {stateLabel(state)}
+                  <label key={option.value} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm transition ${checked ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-700"}`}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleState(option.value)} className="h-4 w-4 accent-amber-500" />
+                    {option.label}
                   </label>
                 );
               })}
+              {visibleStateOptions.length === 0 ? (
+                <div className="col-span-full py-4 text-center text-sm text-slate-400">No state matches &quot;{stateSearch}&quot;.</div>
+              ) : null}
             </div>
             <div className="mt-2 text-xs text-slate-500">Select one state for a sales person, or multiple states for a sales head.</div>
           </div>

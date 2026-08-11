@@ -8743,6 +8743,68 @@ function placeholderPiNumber() {
   return `PI-${new Date().getFullYear()}-XXXX`;
 }
 
+/** Area Allotted entries are stored as one "State - District" line per allotted area. Neither an
+ * Indian state/UT name nor a district name contains " - ", so the separator round-trips safely. */
+const AREA_SLOT_SEPARATOR = " - ";
+type AreaSlot = { state: string; district: string; legacy: string };
+
+function formatAreaSlot(state: string, district: string) {
+  const stateName = state.trim();
+  const districtName = district.trim();
+  if (stateName && districtName) return `${stateName}${AREA_SLOT_SEPARATOR}${districtName}`;
+  return stateName || districtName;
+}
+
+/** Reads a stored area line back into a state/district pair. Free-text areas saved before this
+ * became a dropdown are matched against the geography list where possible, and otherwise kept
+ * verbatim in `legacy` so re-saving a distributor never silently drops their existing area. */
+function resolveAreaSlot(raw: string, entries: Array<{ state: string; districts: string[] }>): AreaSlot {
+  const value = String(raw ?? "").trim();
+  if (!value) return { state: "", district: "", legacy: "" };
+
+  const separatorIndex = value.indexOf(AREA_SLOT_SEPARATOR);
+  if (separatorIndex !== -1) {
+    const state = value.slice(0, separatorIndex).trim();
+    const district = value.slice(separatorIndex + AREA_SLOT_SEPARATOR.length).trim();
+    const entry = entries.find((item) => item.state.toLowerCase() === state.toLowerCase());
+    if (entry && entry.districts.some((item) => item.toLowerCase() === district.toLowerCase())) {
+      return { state: entry.state, district, legacy: "" };
+    }
+  }
+
+  const lowered = value.toLowerCase();
+  const stateMatch = entries.find((item) => item.state.toLowerCase() === lowered);
+  if (stateMatch) return { state: stateMatch.state, district: "", legacy: "" };
+  for (const entry of entries) {
+    const districtMatch = entry.districts.find((item) => item.toLowerCase() === lowered);
+    if (districtMatch) return { state: entry.state, district: districtMatch, legacy: "" };
+  }
+  return { state: "", district: "", legacy: value };
+}
+
+/** Splits registered distributors by whether they belong to the state a PI is being raised for.
+ * Distributors with no state on their registration stay reachable in their own group, otherwise
+ * older records that predate state mapping would become impossible to bill. */
+function groupDistributorsByState(rows: Customer[], targetStateRaw: string) {
+  const targetState = normalizeAurawattPriceState(targetStateRaw || "") || (targetStateRaw || "").trim();
+  if (!targetState) return { inState: rows, unmapped: [] as Customer[], otherStates: [] as Customer[] };
+
+  const inState: Customer[] = [];
+  const unmapped: Customer[] = [];
+  const otherStates: Customer[] = [];
+  for (const customerItem of rows) {
+    const raw = (customerItem.stateRegion || "").trim();
+    if (!raw) {
+      unmapped.push(customerItem);
+      continue;
+    }
+    const normalized = normalizeAurawattPriceState(raw) || raw;
+    if (normalized === targetState) inState.push(customerItem);
+    else otherStates.push(customerItem);
+  }
+  return { inState, unmapped, otherStates };
+}
+
 function defaultPiNumber(existingSales: Sale[] = []) {
   const year = new Date().getFullYear();
   const maxNumber = existingSales.reduce((max, saleItem) => {
@@ -9136,6 +9198,7 @@ export function InventorySalesEntryPage({ currentUser }: { currentUser?: User })
       if (!query) return true;
       const hay = [
         saleItem.referenceNo,
+        saleItem.taxInvoiceNo,
         saleItem.serialNumber,
         saleItem.materialName,
         customer?.name,
@@ -9510,7 +9573,16 @@ export function InventorySalesEntryPage({ currentUser }: { currentUser?: User })
                         <td className="border-r border-white px-3 py-1 font-mono text-[11px] font-bold">{saleItem.serialNumber || "-"}</td>
                         <td className="border-r border-white px-3 py-1">{product?.model || saleItem.materialName || "-"}</td>
                         <td className="border-r border-white px-3 py-1"><Badge color="gray">{saleItem.documentType}</Badge></td>
-                        <td className="border-r border-white px-3 py-1 font-semibold text-blue-600">{saleItem.referenceNo}</td>
+                        <td className="border-r border-white px-3 py-1 font-semibold text-blue-600">
+                          {saleItem.taxInvoiceNo ? (
+                            <>
+                              {saleItem.taxInvoiceNo}
+                              <span className="block text-[10px] font-normal text-gray-500">PI: {saleItem.referenceNo}</span>
+                            </>
+                          ) : (
+                            <span title="Tax Invoice not issued yet - showing PI No.">{saleItem.referenceNo}</span>
+                          )}
+                        </td>
                         <td className="border-r border-white px-3 py-1 text-center">{salesEntryDate(saleItem.saleDate)}</td>
                         <td className="px-3 py-1 text-center">
                           <button
@@ -9995,6 +10067,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   const productsRes = useAsyncData(() => listProducts(), []);
   const priceEntriesRes = useAsyncData(listPriceEntries, []);
   const distributorRequestsRes = useAsyncData(() => listPendingCustomerRegistrations(), []);
+  const geoRes = useAsyncData(getIndiaGeography, []);
 
   const livePriceTable = useMemo(() => {
     const table = buildPriceTableFromEntries(priceEntriesRes.data);
@@ -10028,7 +10101,9 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
 
   const priceStateLabel = (value: string) => {
     const normalized = normalizeAurawattPriceState(value);
-    return PRICE_STATE_OPTIONS.find((option) => option.value === normalized)?.label ?? value;
+    return PRICE_STATE_OPTIONS.find((option) => option.value === normalized)?.label
+      ?? INDIA_STATES.find((option) => option.value === normalized)?.label
+      ?? value;
   };
 
   const repackPiItems = (items: PiLineItem[], category: string, pricingState: string) => {
@@ -10153,6 +10228,23 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   });
   const [areaAllottedSlots, setAreaAllottedSlots] = useState<string[]>([""]);
   const [activeAreaSlotIndex, setActiveAreaSlotIndex] = useState(0);
+  const geoStateEntries = useMemo(() => geoRes.data?.stateDistrictEntries ?? [], [geoRes.data]);
+  const geoStateOptions = useMemo(
+    () => geoStateEntries.map((entry) => ({ value: entry.state, label: entry.state })),
+    [geoStateEntries]
+  );
+  const parsedAreaSlots = useMemo(
+    () => areaAllottedSlots.map((slot) => resolveAreaSlot(slot, geoStateEntries)),
+    [areaAllottedSlots, geoStateEntries]
+  );
+  const activeAreaSlot = parsedAreaSlots[activeAreaSlotIndex] ?? { state: "", district: "", legacy: "" };
+  const activeAreaDistrictOptions = useMemo(() => {
+    const districts = geoStateEntries.find((entry) => entry.state === activeAreaSlot.state)?.districts ?? [];
+    return districts.map((district) => ({ value: district, label: district }));
+  }, [geoStateEntries, activeAreaSlot.state]);
+  const setAreaSlotValue = (index: number, state: string, district: string) => {
+    setAreaAllottedSlots((current) => current.map((slot, slotIndex) => (slotIndex === index ? formatAreaSlot(state, district) : slot)));
+  };
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -10193,6 +10285,13 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
     selectedAssignmentState ||
     currentUser?.assignedStates?.[0] ||
     "";
+  const piDistributorGroups = useMemo(
+    () => groupDistributorsByState(customersRes.data?.data ?? [], assignedStateRegion),
+    [customersRes.data, assignedStateRegion]
+  );
+  /** The dispatch tab picks an already-generated PI from a dropdown, so the "PI-YYYY-XXXX"
+   * placeholder the PI tab starts from counts as nothing selected rather than a typed number. */
+  const dispatchReferenceNo = isPlaceholderPiNumber(referenceNo) ? "" : referenceNo.trim();
   const modalSalesRowsBase = useMemo(() => {
     const rows = salesRes.data?.data ?? [];
     if (activeSalesTab !== "dispatch") return rows;
@@ -10201,6 +10300,31 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
       return hasPiData && saleItem.forcePiApprovalStatus !== "Pending";
     });
   }, [activeSalesTab, salesRes.data]);
+  /** PIs a dispatch request can be raised against: generated (not a placeholder number) and not
+   * held up in Admin approval. PIs still awaiting a dispatch request sort to the top. */
+  const dispatchRequestPiOptions = useMemo(() => {
+    return (salesRes.data?.data ?? [])
+      .filter((saleItem) => {
+        const reference = (saleItem.referenceNo || "").trim();
+        if (!reference || isPlaceholderPiNumber(reference)) return false;
+        if (!(saleItem.piItems?.length || saleItem.materialName)) return false;
+        return saleItem.forcePiApprovalStatus !== "Pending";
+      })
+      .map((saleItem) => {
+        const dealer = saleItem.customerId
+          ? customerById.get(saleItem.customerId)?.name || saleItem.customerId
+          : saleItem.unregisteredCustomerName || "";
+        const material = saleItem.piItems?.[0]?.materialName || saleItem.materialName || "";
+        const alreadySent = piDispatchBucket(saleItem.dispatchStatus) !== "Pending" || Boolean(saleItem.accountsRequestAt);
+        const reference = saleItem.referenceNo.trim();
+        return {
+          referenceNo: reference,
+          label: `${[reference, dealer, material].filter(Boolean).join(" - ")}${alreadySent ? " (dispatch request already generated)" : ""}`,
+          alreadySent,
+        };
+      })
+      .sort((a, b) => Number(a.alreadySent) - Number(b.alreadySent) || b.referenceNo.localeCompare(a.referenceNo));
+  }, [salesRes.data, customerById]);
   const piRecordCounts = useMemo(() => {
     return PI_RECORD_DISPATCH_FILTERS.reduce((counts, filter) => {
       counts[filter] = modalSalesRowsBase.filter((saleItem) => piDispatchBucket(saleItem.dispatchStatus) === filter).length;
@@ -10498,6 +10622,10 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   const pendingDraftStockShortages = Array.from(pendingDraftRequestedByMaterial.entries()).filter(([name, total]) => materialOptionSet.has(name) && total > (stockByMaterial.get(name) ?? 0));
   const pendingDraftInventoryStatus = pendingDraftInvalidItems.length ? "Select Valid Product" : pendingDraftStockShortages.length ? "Insufficient" : "Available";
   const pendingDraftInventoryBadgeColor = pendingDraftInvalidItems.length ? "yellow" : pendingDraftStockShortages.length ? "red" : "green";
+  const pendingDraftDistributorGroups = useMemo(
+    () => groupDistributorsByState(customersRes.data?.data ?? [], pendingPiDraft?.stateRegion || assignedStateRegion),
+    [customersRes.data, pendingPiDraft?.stateRegion, assignedStateRegion]
+  );
   const pendingDraftCustomer = pendingPiDraft?.customerId ? customerById.get(pendingPiDraft.customerId) : undefined;
   const pendingDraftShipToAddress = resolveShipToAddress(pendingDraftCustomer, pendingPiDraft?.shipToAddressKey);
 
@@ -10793,8 +10921,8 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
         return;
       }
 
-      if (!reference || !date) {
-        setFormError("PI number and PI date are required.");
+      if (!dispatchReferenceNo || !date) {
+        setFormError("Please select a PI number and a PI date.");
         return;
       }
 
@@ -10803,7 +10931,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
         return;
       }
 
-      const existingPi = findSaleByReference(reference);
+      const existingPi = findSaleByReference(dispatchReferenceNo);
       if (!existingPi) {
         setFormError("The PI number was not found in the sales records. Please generate and save the PI first.");
         return;
@@ -10820,7 +10948,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
       let dispatchPiAttachmentName = selectedPiAttachmentName;
       let dispatchPiAttachmentUrl = selectedPiAttachmentUrl;
       if (!dispatchPiAttachmentName) {
-        const attached = await attachPiForDispatch(reference, existingPi);
+        const attached = await attachPiForDispatch(dispatchReferenceNo, existingPi);
         dispatchPiAttachmentName = attached?.name ?? "";
         dispatchPiAttachmentUrl = attached?.url ?? "";
       }
@@ -11155,10 +11283,27 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                           className="mb-2 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
                         >
                           <option value="">Select registered distributor...</option>
-                          {(customersRes.data?.data ?? []).map((customerItem) => (
+                          {piDistributorGroups.inState.map((customerItem) => (
                             <option key={customerItem.id} value={customerItem.id}>{customerItem.name}</option>
                           ))}
+                          {piDistributorGroups.unmapped.length ? (
+                            <optgroup label="State not mapped on registration">
+                              {piDistributorGroups.unmapped.map((customerItem) => (
+                                <option key={customerItem.id} value={customerItem.id}>{customerItem.name}</option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {customerId
+                            && !piDistributorGroups.inState.some((item) => item.id === customerId)
+                            && !piDistributorGroups.unmapped.some((item) => item.id === customerId) ? (
+                            <option value={customerId}>{customerById.get(customerId)?.name || customerId}</option>
+                          ) : null}
                         </select>
+                        <div className="mb-2 text-[11px] text-gray-500">
+                          {assignedStateRegion
+                            ? `Showing ${piDistributorGroups.inState.length} distributor(s) mapped to ${priceStateLabel(assignedStateRegion)}${piDistributorGroups.otherStates.length ? ` — ${piDistributorGroups.otherStates.length} from other states hidden.` : "."}`
+                            : "No state selected, so all registered distributors are listed."}
+                        </div>
                         {selectedCustomer && (
                           <select
                             value={selectedShipToAddress?.key ?? shipToAddressKey}
@@ -11467,21 +11612,34 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                 <div className="px-4 py-3 text-sm text-gray-500">1</div>
                 <div className="px-4 py-3 text-sm font-semibold text-gray-900">PI Number</div>
                 <div className="px-4 py-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <input
-                    value={referenceNo}
-                    onChange={(event) => {
-                      const nextReference = event.target.value;
-                      setReferenceNo(nextReference);
-                      if (piAttachmentName && nextReference.trim() !== autoAttachedPiRef) {
-                        clearPiAttachment();
-                      }
-                    }}
-                    onBlur={() => {
-                      if (!piAttachmentName) void attachPiForDispatch(referenceNo);
-                    }}
-                    placeholder="PI-2026-0001"
-                    className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-800 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
-                  />
+                  <div>
+                    <select
+                      value={dispatchReferenceNo}
+                      onChange={(event) => {
+                        const nextReference = event.target.value;
+                        setReferenceNo(nextReference);
+                        if (piAttachmentName && nextReference.trim() !== autoAttachedPiRef) {
+                          clearPiAttachment();
+                        }
+                      }}
+                      className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-800 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 font-mono"
+                    >
+                      <option value="">Select PI No...</option>
+                      {dispatchRequestPiOptions.map((option) => (
+                        <option key={option.referenceNo} value={option.referenceNo}>{option.label}</option>
+                      ))}
+                      {dispatchReferenceNo && !dispatchRequestPiOptions.some((option) => option.referenceNo === dispatchReferenceNo) ? (
+                        <option value={dispatchReferenceNo}>{dispatchReferenceNo}</option>
+                      ) : null}
+                    </select>
+                    <div className="mt-1 text-[11px] text-gray-400">
+                      {salesRes.loading
+                        ? "Loading generated PIs..."
+                        : dispatchRequestPiOptions.length
+                          ? `${dispatchRequestPiOptions.length} generated PI(s) available.`
+                          : "No generated PI available yet. Please generate the PI first."}
+                    </div>
+                  </div>
                   <input
                     type="date"
                     value={saleDate}
@@ -11835,37 +11993,52 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                         </button>
                       ))}
                     </div>
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                      <input
-                        value={areaAllottedSlots[activeAreaSlotIndex] ?? ""}
-                        onChange={(event) => {
-                          const nextValue = event.target.value;
-                          setAreaAllottedSlots((current) => current.map((slot, slotIndex) => (slotIndex === activeAreaSlotIndex ? nextValue : slot)));
-                        }}
-                        placeholder={`Area / location ${activeAreaSlotIndex + 1}`}
-                        className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <SearchableSelect
+                        label="State"
+                        value={activeAreaSlot.state}
+                        onChange={(next) => setAreaSlotValue(activeAreaSlotIndex, next, "")}
+                        options={geoStateOptions}
+                        placeholder="Select state / UT"
+                        loading={Boolean(geoRes.loading)}
+                        error={!geoStateOptions.length && !geoRes.loading ? "State list unavailable." : undefined}
                       />
-                      {areaAllottedSlots.length > 1 ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setAreaAllottedSlots((current) => {
-                              const next = current.filter((_, slotIndex) => slotIndex !== activeAreaSlotIndex);
-                              setActiveAreaSlotIndex(Math.max(0, Math.min(activeAreaSlotIndex, next.length - 1)));
-                              return next.length ? next : [""];
-                            })
-                          }
-                          className="h-10 rounded-lg border border-red-100 bg-white px-3 text-xs font-bold text-red-500 hover:bg-red-50"
-                        >
-                          Remove
-                        </button>
-                      ) : null}
+                      <SearchableSelect
+                        label="District"
+                        value={activeAreaSlot.district}
+                        onChange={(next) => setAreaSlotValue(activeAreaSlotIndex, activeAreaSlot.state, next)}
+                        options={activeAreaDistrictOptions}
+                        placeholder={activeAreaSlot.state ? "Select district" : "Select state first"}
+                        disabled={!activeAreaSlot.state}
+                        loading={Boolean(geoRes.loading)}
+                        error={activeAreaSlot.state && !activeAreaDistrictOptions.length && !geoRes.loading ? "No district found for the selected state." : undefined}
+                      />
                     </div>
+                    {areaAllottedSlots.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAreaAllottedSlots((current) => {
+                            const next = current.filter((_, slotIndex) => slotIndex !== activeAreaSlotIndex);
+                            setActiveAreaSlotIndex(Math.max(0, Math.min(activeAreaSlotIndex, next.length - 1)));
+                            return next.length ? next : [""];
+                          })
+                        }
+                        className="mt-2 h-9 rounded-lg border border-red-100 bg-white px-3 text-xs font-bold text-red-500 hover:bg-red-50"
+                      >
+                        Remove this area
+                      </button>
+                    ) : null}
+                    {activeAreaSlot.legacy ? (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                        Existing entry &quot;{activeAreaSlot.legacy}&quot; was saved as free text. It is kept as-is until you pick a State and District above.
+                      </div>
+                    ) : null}
                     <div className="mt-2 min-h-5 text-xs text-gray-500">
                       {areaAllottedSlots[activeAreaSlotIndex]?.trim() ? (
                         <>No. {activeAreaSlotIndex + 1}: {areaAllottedSlots[activeAreaSlotIndex]}</>
                       ) : (
-                        <>Fill No. {activeAreaSlotIndex + 1}, then use Add Next.</>
+                        <>Select State and District for No. {activeAreaSlotIndex + 1}, then use Add Next.</>
                       )}
                     </div>
                   </div>
@@ -12146,9 +12319,21 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                           className="mb-2 w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
                         >
                           <option value="">Select registered distributor...</option>
-                          {(customersRes.data?.data ?? []).map((customerItem) => (
+                          {pendingDraftDistributorGroups.inState.map((customerItem) => (
                             <option key={customerItem.id} value={customerItem.id}>{customerItem.name}</option>
                           ))}
+                          {pendingDraftDistributorGroups.unmapped.length ? (
+                            <optgroup label="State not mapped on registration">
+                              {pendingDraftDistributorGroups.unmapped.map((customerItem) => (
+                                <option key={customerItem.id} value={customerItem.id}>{customerItem.name}</option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {pendingPiDraft.customerId
+                            && !pendingDraftDistributorGroups.inState.some((item) => item.id === pendingPiDraft.customerId)
+                            && !pendingDraftDistributorGroups.unmapped.some((item) => item.id === pendingPiDraft.customerId) ? (
+                            <option value={pendingPiDraft.customerId}>{pendingDraftCustomer?.name || pendingPiDraft.customerId}</option>
+                          ) : null}
                         </select>
                         {pendingDraftCustomer && (
                           <select
@@ -12854,6 +13039,7 @@ export function AccountsTeamPage() {
   }, [salesRes.data]);
 
   const [selectedSaleId, setSelectedSaleId] = useState("");
+  const [taxInvoiceNo, setTaxInvoiceNo] = useState("");
   const [taxInvoiceName, setTaxInvoiceName] = useState("");
   const [taxInvoiceUrl, setTaxInvoiceUrl] = useState("");
   const [ewayBillName, setEwayBillName] = useState("");
@@ -12862,6 +13048,7 @@ export function AccountsTeamPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [formOk, setFormOk] = useState("");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   const selectedSale = useMemo(() => accountsRows.find((saleItem) => saleItem.id === selectedSaleId) ?? null, [accountsRows, selectedSaleId]);
   const selectedIsNewWorkflow = isNewPiWorkflow(selectedSale);
@@ -12875,7 +13062,7 @@ export function AccountsTeamPage() {
       ? normalizePiWorkflowStatus(selectedSale.piWorkflowStatus) === PI_STATUS_SUBMITTED
       : selectedSale.paymentStatus !== "Confirmed"
     : false;
-  const selectedHasAccountsDocs = Boolean(taxInvoiceName && taxInvoiceUrl && ewayBillName && ewayBillUrl);
+  const selectedHasAccountsDocs = Boolean(taxInvoiceNo.trim() && taxInvoiceName && taxInvoiceUrl && ewayBillName && ewayBillUrl);
   const accountsActionLabel = canVerifySelectedPayment
     ? "Mark as Payment Verified"
     : selectedHasAccountsDocs
@@ -12886,6 +13073,7 @@ export function AccountsTeamPage() {
   const selectSale = (saleId: string) => {
     const saleItem = accountsRows.find((item) => item.id === saleId);
     setSelectedSaleId(saleId);
+    setTaxInvoiceNo(saleItem?.taxInvoiceNo ?? "");
     setTaxInvoiceName(saleItem?.taxInvoiceAttachmentName ?? "");
     setTaxInvoiceUrl(saleItem?.taxInvoiceAttachmentUrl ?? "");
     setEwayBillName(saleItem?.ewayBillAttachmentName ?? "");
@@ -12967,6 +13155,10 @@ export function AccountsTeamPage() {
       setFormError("You can send it to the Dispatch Team only after the sales dispatch request has been generated.");
       return;
     }
+    if (!taxInvoiceNo.trim()) {
+      setFormError("Please enter the Tax Invoice No. (TI No.) before sending it to the Dispatch Team.");
+      return;
+    }
     if (!taxInvoiceName || !taxInvoiceUrl || !ewayBillName || !ewayBillUrl) {
       setFormError("Please upload both the Tax Invoice and the E-Way Bill for dispatch.");
       return;
@@ -12975,6 +13167,7 @@ export function AccountsTeamPage() {
     setSaving(true);
     try {
       await updateAccountsDocuments(selectedSaleId, {
+        taxInvoiceNo: taxInvoiceNo.trim(),
         taxInvoiceAttachmentName: taxInvoiceName,
         taxInvoiceAttachmentUrl: taxInvoiceUrl,
         ewayBillAttachmentName: ewayBillName,
@@ -12990,9 +13183,38 @@ export function AccountsTeamPage() {
     }
   };
 
+  const accountsRefreshing = salesRes.loading || customersRes.loading;
+  const refreshAccountsQueue = () => {
+    if (accountsRefreshing) return;
+    setFormError("");
+    setFormOk("");
+    salesRes.reload();
+    customersRes.reload();
+    setLastRefreshedAt(new Date());
+  };
+
   return (
     <div>
-      <PageHeader title="Accounts Team" sub="Dispatch Team forwards PI here for payment verification, then Tax Invoice and E-Way Bill return after vehicle number sharing." />
+      <PageHeader
+        title="Accounts Team"
+        sub="Dispatch Team forwards PI here for payment verification, then Tax Invoice and E-Way Bill return after vehicle number sharing."
+        action={
+          <div className="flex flex-col items-start sm:items-end gap-1">
+            <button
+              type="button"
+              onClick={refreshAccountsQueue}
+              disabled={accountsRefreshing}
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <IconRefresh size={15} className={accountsRefreshing ? "animate-spin" : undefined} />
+              {accountsRefreshing ? "Refreshing..." : "Refresh"}
+            </button>
+            {lastRefreshedAt ? (
+              <span className="text-[11px] text-gray-400">Last updated {lastRefreshedAt.toLocaleTimeString()}</span>
+            ) : null}
+          </div>
+        }
+      />
       <div className="rounded-2xl bg-white border border-gray-200 p-6 shadow-sm">
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,440px)] gap-6">
           <div>
@@ -13026,7 +13248,7 @@ export function AccountsTeamPage() {
                     <TD><Badge color={piWorkflowBadgeColor(saleItem)}>{piWorkflowLabel(saleItem)}</Badge></TD>
                     <TD><Badge color={saleItem.paymentStatus === "Confirmed" ? "green" : "yellow"}>{paymentStatusLabel(saleItem.paymentStatus)}</Badge></TD>
                     <TD className="text-xs text-gray-600">
-                      <div>TI: {saleItem.taxInvoiceAttachmentUrl ? "Uploaded" : "-"}</div>
+                      <div>TI: {saleItem.taxInvoiceNo || (saleItem.taxInvoiceAttachmentUrl ? "Uploaded" : "-")}</div>
                       <div>E-Way: {saleItem.ewayBillAttachmentUrl ? "Uploaded" : "-"}</div>
                     </TD>
                   </TR>
@@ -13057,6 +13279,18 @@ export function AccountsTeamPage() {
                   Open PI
                 </a>
               ) : null}
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Tax Invoice No. (TI No.)</label>
+                <input
+                  value={taxInvoiceNo}
+                  onChange={(event) => setTaxInvoiceNo(event.target.value)}
+                  disabled={!canUploadAccountsDocs}
+                  placeholder="e.g. TI-2025-0001"
+                  className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-800 text-sm font-mono focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
+                />
+                <div className="mt-1 text-[11px] text-gray-400">Shown as Invoice No. in Sales Record once saved.</div>
+              </div>
 
               <div>
                 <label className={`inline-flex min-h-10 w-full items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition ${!canUploadAccountsDocs
