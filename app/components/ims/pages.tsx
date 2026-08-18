@@ -14651,6 +14651,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [submitting, setSubmitting] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [complaintListSearch, setComplaintListSearch] = useState("");
+  const [complaintListStatusFilter, setComplaintListStatusFilter] = useState("");
   const [complaintListPage, setComplaintListPage] = useState(1);
   const [complaintListTab, setComplaintListTab] = useState<ComplaintListTabId>("active");
   const [reassignComplaintId, setReassignComplaintId] = useState("");
@@ -14768,7 +14769,11 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
   useEffect(() => {
     setComplaintListPage(1);
-  }, [complaintListSearch, complaintListTab, currentRole]);
+  }, [complaintListSearch, complaintListStatusFilter, complaintListTab, currentRole]);
+
+  useEffect(() => {
+    setComplaintListStatusFilter("");
+  }, [complaintListTab, currentRole]);
 
   const intakeSerialInfo = resolveSerialInfo(serialNumber);
   const selectedManufactured = intakeSerialInfo?.manufactured ?? null;
@@ -15045,10 +15050,18 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     [sentForOnsiteRows]
   );
   const closedQueueCount = useMemo(() => closedQueueRows.length, [closedQueueRows]);
+  /** Distinct statuses present in the current queue tab, for the L3 status-filter dropdown. */
+  const complaintListStatusOptions = useMemo(
+    () => Array.from(new Set(visibleComplaintRows.map((complaint) => complaint.status))).sort(),
+    [visibleComplaintRows]
+  );
   const filteredComplaintRows = useMemo(() => {
+    const statusScoped = complaintListStatusFilter
+      ? visibleComplaintRows.filter((complaint) => complaint.status === complaintListStatusFilter)
+      : visibleComplaintRows;
     const query = complaintListSearch.trim().toLowerCase();
-    if (!query) return visibleComplaintRows;
-    return visibleComplaintRows.filter((complaint) => {
+    if (!query) return statusScoped;
+    return statusScoped.filter((complaint) => {
       const haystack = [
         complaint.ticketNumber, // human-readable Ticket ID (e.g. AW-20260716-0008) shown in the UI
         complaint.id,
@@ -15072,7 +15085,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       ].filter(Boolean).join(" ").toLowerCase();
       return haystack.includes(query);
     });
-  }, [complaintListSearch, visibleComplaintRows]);
+  }, [complaintListSearch, complaintListStatusFilter, visibleComplaintRows]);
   const complaintListTotalPages = Math.max(1, Math.ceil(filteredComplaintRows.length / COMPLAINT_LIST_PAGE_SIZE));
   const complaintListPageRows = useMemo(() => {
     const safePage = Math.min(complaintListPage, complaintListTotalPages);
@@ -19457,7 +19470,24 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   </div>
                 </div>
               )}
-              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue", "Status"]}>
+              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue",
+                currentRole === "L3 Advanced OEM Support" ? (
+                  <div className="flex items-center gap-1">
+                    <span>Status</span>
+                    <select
+                      value={complaintListStatusFilter}
+                      onChange={(e) => setComplaintListStatusFilter(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Filter by status"
+                      className="normal-case rounded border border-gray-200 bg-white px-1 py-0.5 text-[10px] font-semibold text-gray-600"
+                    >
+                      <option value="">All</option>
+                      {complaintListStatusOptions.map((status) => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : "Status"]}>
                 {complaintsRes.loading ? (
                   <TR>
                     <TD colSpan={14} className="text-center text-gray-400 py-10">Loading...</TD>
@@ -19471,6 +19501,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     <TD colSpan={14} className="text-center text-gray-400 py-10">
                       {complaintListSearch.trim()
                         ? "No complaint matches this search."
+                        : complaintListStatusFilter
+                          ? `No tickets with status "${complaintListStatusFilter}".`
                         : complaintListTab === "escalatedl2"
                           ? "No tickets currently escalated to L2."
                         : complaintListTab === "hold"
