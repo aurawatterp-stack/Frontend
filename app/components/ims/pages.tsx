@@ -19470,35 +19470,41 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   </div>
                 </div>
               )}
-              {currentRole === "L3 Advanced OEM Support" && (
-                <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Status:</span>
-                  <button
-                    type="button"
-                    onClick={() => setComplaintListStatusFilter("")}
-                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${!complaintListStatusFilter
-                      ? "border-blue-300 bg-blue-100 text-blue-700"
-                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                      }`}
-                  >
-                    All
-                  </button>
-                  {complaintListStatusOptions.map((status) => (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => setComplaintListStatusFilter(status)}
-                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${complaintListStatusFilter === status
-                        ? "border-blue-300 bg-blue-100 text-blue-700"
-                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                        }`}
-                    >
-                      {status}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue", "Status"]}>
+              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue",
+                currentRole === "L3 Advanced OEM Support" ? (
+                  <div className="flex flex-col items-start gap-0.5">
+                    <div className="flex items-center gap-1">
+                      <span>Status</span>
+                      <div className="flex flex-col">
+                        <button
+                          type="button"
+                          onClick={() => setComplaintListStatusFilter((prev) => {
+                            const sequence = ["", ...complaintListStatusOptions];
+                            const idx = sequence.indexOf(prev);
+                            return sequence[(idx - 1 + sequence.length) % sequence.length];
+                          })}
+                          title="Previous status filter"
+                          className="text-gray-400 hover:text-gray-700"
+                        >
+                          <svg width="10" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setComplaintListStatusFilter((prev) => {
+                            const sequence = ["", ...complaintListStatusOptions];
+                            const idx = sequence.indexOf(prev);
+                            return sequence[(idx + 1) % sequence.length];
+                          })}
+                          title="Next status filter"
+                          className="text-gray-400 hover:text-gray-700"
+                        >
+                          <svg width="10" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <span className="normal-case text-[9px] font-normal text-blue-600">{complaintListStatusFilter || "All"}</span>
+                  </div>
+                ) : "Status"]}>
                 {complaintsRes.loading ? (
                   <TR>
                     <TD colSpan={14} className="text-center text-gray-400 py-10">Loading...</TD>
