@@ -14651,7 +14651,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const [submitting, setSubmitting] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [complaintListSearch, setComplaintListSearch] = useState("");
-  const [complaintListStatusSort, setComplaintListStatusSort] = useState<"asc" | "desc" | null>(null);
+  const [complaintListStatusFilter, setComplaintListStatusFilter] = useState("");
   const [complaintListPage, setComplaintListPage] = useState(1);
   const [complaintListTab, setComplaintListTab] = useState<ComplaintListTabId>("active");
   const [reassignComplaintId, setReassignComplaintId] = useState("");
@@ -14769,10 +14769,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
   useEffect(() => {
     setComplaintListPage(1);
-  }, [complaintListSearch, complaintListStatusSort, complaintListTab, currentRole]);
+  }, [complaintListSearch, complaintListStatusFilter, complaintListTab, currentRole]);
 
   useEffect(() => {
-    setComplaintListStatusSort(null);
+    setComplaintListStatusFilter("");
   }, [complaintListTab, currentRole]);
 
   const intakeSerialInfo = resolveSerialInfo(serialNumber);
@@ -15050,9 +15050,18 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     [sentForOnsiteRows]
   );
   const closedQueueCount = useMemo(() => closedQueueRows.length, [closedQueueRows]);
+  /** Distinct statuses present in the current queue tab, rendered as the L3 status-filter pill buttons. */
+  const complaintListStatusOptions = useMemo(
+    () => Array.from(new Set(visibleComplaintRows.map((complaint) => complaint.status))).sort(),
+    [visibleComplaintRows]
+  );
   const filteredComplaintRows = useMemo(() => {
+    const statusScoped = complaintListStatusFilter
+      ? visibleComplaintRows.filter((complaint) => complaint.status === complaintListStatusFilter)
+      : visibleComplaintRows;
     const query = complaintListSearch.trim().toLowerCase();
-    const searched = !query ? visibleComplaintRows : visibleComplaintRows.filter((complaint) => {
+    if (!query) return statusScoped;
+    return statusScoped.filter((complaint) => {
       const haystack = [
         complaint.ticketNumber, // human-readable Ticket ID (e.g. AW-20260716-0008) shown in the UI
         complaint.id,
@@ -15076,13 +15085,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       ].filter(Boolean).join(" ").toLowerCase();
       return haystack.includes(query);
     });
-    if (!complaintListStatusSort) return searched;
-    return [...searched].sort((a, b) => (
-      complaintListStatusSort === "asc"
-        ? a.status.localeCompare(b.status)
-        : b.status.localeCompare(a.status)
-    ));
-  }, [complaintListSearch, complaintListStatusSort, visibleComplaintRows]);
+  }, [complaintListSearch, complaintListStatusFilter, visibleComplaintRows]);
   const complaintListTotalPages = Math.max(1, Math.ceil(filteredComplaintRows.length / COMPLAINT_LIST_PAGE_SIZE));
   const complaintListPageRows = useMemo(() => {
     const safePage = Math.min(complaintListPage, complaintListTotalPages);
@@ -19467,23 +19470,35 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   </div>
                 </div>
               )}
-              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue",
-                currentRole === "L3 Advanced OEM Support" ? (
-                  <div className="flex items-center gap-1">
-                    <span>Status</span>
+              {currentRole === "L3 Advanced OEM Support" && (
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Status:</span>
+                  <button
+                    type="button"
+                    onClick={() => setComplaintListStatusFilter("")}
+                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${!complaintListStatusFilter
+                      ? "border-blue-300 bg-blue-100 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                  >
+                    All
+                  </button>
+                  {complaintListStatusOptions.map((status) => (
                     <button
+                      key={status}
                       type="button"
-                      onClick={() => setComplaintListStatusSort((prev) => (prev === "asc" ? "desc" : prev === "desc" ? null : "asc"))}
-                      title="Sort by status"
-                      className="inline-flex items-center justify-center p-0.5 text-gray-400 hover:text-gray-700"
+                      onClick={() => setComplaintListStatusFilter(status)}
+                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${complaintListStatusFilter === status
+                        ? "border-blue-300 bg-blue-100 text-blue-700"
+                        : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        }`}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="m7 9 5-5 5 5" opacity={complaintListStatusSort === "asc" ? 1 : 0.4} />
-                        <path d="m7 15 5 5 5-5" opacity={complaintListStatusSort === "desc" ? 1 : 0.4} />
-                      </svg>
+                      {status}
                     </button>
-                  </div>
-                ) : "Status"]}>
+                  ))}
+                </div>
+              )}
+              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue", "Status"]}>
                 {complaintsRes.loading ? (
                   <TR>
                     <TD colSpan={14} className="text-center text-gray-400 py-10">Loading...</TD>
@@ -19497,6 +19512,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     <TD colSpan={14} className="text-center text-gray-400 py-10">
                       {complaintListSearch.trim()
                         ? "No complaint matches this search."
+                        : complaintListStatusFilter
+                          ? `No tickets with status "${complaintListStatusFilter}".`
                         : complaintListTab === "escalatedl2"
                           ? "No tickets currently escalated to L2."
                         : complaintListTab === "hold"
