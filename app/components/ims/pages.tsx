@@ -19475,7 +19475,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   <div className="flex flex-col items-start gap-0.5">
                     <div className="flex items-center gap-1">
                       <span>Status</span>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col rounded border border-gray-200 overflow-hidden">
                         <button
                           type="button"
                           onClick={() => setComplaintListStatusFilter((prev) => {
@@ -19484,9 +19484,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                             return sequence[(idx - 1 + sequence.length) % sequence.length];
                           })}
                           title="Previous status filter"
-                          className="text-gray-400 hover:text-gray-700"
+                          className="flex items-center justify-center bg-white px-1.5 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800 border-b border-gray-200"
                         >
-                          <svg width="10" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+                          <svg width="16" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
                         </button>
                         <button
                           type="button"
@@ -19496,9 +19496,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                             return sequence[(idx + 1) % sequence.length];
                           })}
                           title="Next status filter"
-                          className="text-gray-400 hover:text-gray-700"
+                          className="flex items-center justify-center bg-white px-1.5 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
                         >
-                          <svg width="10" height="6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                          <svg width="16" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                         </button>
                       </div>
                     </div>
