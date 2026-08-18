@@ -19475,10 +19475,12 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       type="button"
                       onClick={() => setComplaintListStatusSort((prev) => (prev === "asc" ? "desc" : prev === "desc" ? null : "asc"))}
                       title="Sort by status"
-                      className="inline-flex flex-col items-center justify-center gap-0.5 rounded border border-gray-200 bg-white px-1 py-0.5 hover:bg-gray-50"
+                      className="inline-flex items-center justify-center p-0.5 text-gray-400 hover:text-gray-700"
                     >
-                      <svg width="10" height="6" viewBox="0 0 24 24" fill="none" stroke={complaintListStatusSort === "asc" ? "#374151" : "#9CA3AF"} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
-                      <svg width="10" height="6" viewBox="0 0 24 24" fill="none" stroke={complaintListStatusSort === "desc" ? "#374151" : "#9CA3AF"} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m7 9 5-5 5 5" opacity={complaintListStatusSort === "asc" ? 1 : 0.4} />
+                        <path d="m7 15 5 5 5-5" opacity={complaintListStatusSort === "desc" ? 1 : 0.4} />
+                      </svg>
                     </button>
                   </div>
                 ) : "Status"]}>
