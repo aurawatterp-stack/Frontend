@@ -8191,7 +8191,8 @@ type ComplaintListTabId =
   | "l1backup"
   | "assigned"
   | "inprogress"
-  | "escalatedl2";
+  | "escalatedl2"
+  | "escalatedl3";
 const DISPATCH_TRACKING_STATUSES = ["Spare Requested", "Replacement Requested", "Awaiting Dispatch", "Dispatch in Progress", "Dispatched"];
 /** Held tickets sit outside the 5 active / 5 lobby capacity counters. */
 const HOLD_TICKET_STATUS = "On Hold";
@@ -13635,7 +13636,7 @@ export function DispatchTeamPage() {
     const saleItem = (salesRes.data?.data ?? []).find((item) => item.id === saleId);
     const workflowStatus = normalizePiWorkflowStatus(saleItem?.piWorkflowStatus);
     const initialVehicleNo = saleItem?.vehicleNo ?? (saleItem?.piWorkflowStatus === "Vehicle No. Shared" ? saleItem?.serialNumber : "") ?? "";
-    const initialSerial = saleItem?.vehicleNo ? (saleItem?.serialNumber ?? "") : (saleItem?.piWorkflowStatus === "Vehicle No. Shared" ? "" : (saleItem?.serialNumber ?? "")) ?? "";
+    const initialSerial = saleItem?.vehicleNo ? (saleItem?.serialNumber ?? "") : (saleItem?.piWorkflowStatus === "Vehicle No. Shared" ? "" : (saleItem?.serialNumber ?? ""));
     setVehicleNo(initialVehicleNo);
     setSerialNumber(initialSerial);
     setConfirmedDispatchDate(saleItem?.confirmedDispatchDate ? formatDateOnly(saleItem.confirmedDispatchDate) : "");
@@ -14969,6 +14970,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const adminWaitingRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Waiting Lobby"), [complaintRows]);
   const adminAssignedRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Assigned to Engineer"), [complaintRows]);
   const adminEscalatedRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Escalated to L2"), [complaintRows]);
+  const adminEscalatedL3Rows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "Escalated to L3"), [complaintRows]);
   const adminInProgressRows = useMemo(() => complaintRows.filter((complaint) => complaint.status === "In Progress at Aurawatt"), [complaintRows]);
   const adminEscalatedByL2 = useMemo(() => {
     const counts = new Map<string, number>();
@@ -14978,6 +14980,14 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [adminEscalatedRows]);
+  const adminEscalatedByL3 = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const complaint of adminEscalatedL3Rows) {
+      const key = complaint.assignedEngineerName || complaint.engineerName || "Unassigned";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [adminEscalatedL3Rows]);
   const l2TeamNames = useMemo(() => new Set((myL1TeamRes.data ?? []).map((engineer) => engineer.name)), [myL1TeamRes.data]);
   const teamTicketRows = useMemo(() => {
     if (currentRole === "L3 Advanced OEM Support") {
@@ -15000,6 +15010,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       if (complaintListTab === "waiting") return adminWaitingRows;
       if (complaintListTab === "assigned") return adminAssignedRows;
       if (complaintListTab === "escalatedl2") return adminEscalatedRows;
+      if (complaintListTab === "escalatedl3") return adminEscalatedL3Rows;
       if (complaintListTab === "hold") return adminHoldRows;
       if (complaintListTab === "inprogress") return adminInProgressRows;
       if (complaintListTab === "closed") return closedQueueRows;
@@ -15035,7 +15046,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       return [...activeRows, ...l1WaitingRows.slice(0, 5 - activeRows.length)];
     }
     return activeRows;
-  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, sentForOnsiteRows, closedQueueRows, currentUser?.id, currentUser?.name]);
+  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminEscalatedL3Rows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, sentForOnsiteRows, closedQueueRows, currentUser?.id, currentUser?.name]);
   const l1ActiveTicketCount = useMemo(() => l1ActiveRows.length, [l1ActiveRows]);
   const dispatchTrackingCount = useMemo(() => dispatchTrackingRows.length, [dispatchTrackingRows]);
   const l1WaitingTicketCount = useMemo(() => complaintRows.filter((complaint) => (
@@ -19228,7 +19239,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   {isServiceEngineerRole
                     ? `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${sentForOnsiteCount > 0 ? ` | Sent for Onsite: ${sentForOnsiteCount}` : ""}${currentRole === "L3 Advanced OEM Support" ? ` | Spare/Replacement: ${dispatchTrackingCount}` : ""} | Closed: ${closedQueueCount}`
                   : isServiceAdmin
-                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | Closed: ${closedQueueCount} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
+                      ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | Escalated to L3: ${adminEscalatedL3Rows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | Closed: ${closedQueueCount} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
                       : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
                 </div>
               </div>
@@ -19255,6 +19266,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     { id: "waiting", label: "Waiting Lobby", count: adminWaitingRows.length },
                     { id: "assigned", label: "Assigned to Engineer", count: adminAssignedRows.length },
                     { id: "escalatedl2", label: "Escalated to L2", count: adminEscalatedRows.length },
+                    { id: "escalatedl3", label: "Escalated to L3", count: adminEscalatedL3Rows.length },
                     { id: "hold", label: "Hold Tickets", count: adminHoldRows.length },
                     { id: "inprogress", label: "In Progress", count: adminInProgressRows.length },
                     { id: "closed", label: "Closed Tickets", count: closedQueueCount },
@@ -19341,6 +19353,25 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       </span>
                     )) : (
                       <span className="rounded-full border border-teal-200 bg-white px-3 py-1 text-[11px] font-semibold text-teal-800">
+                        No escalations currently open.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {complaintListTab === "escalatedl3" && (
+                <div className="mb-3 rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 text-xs leading-5 text-purple-900">
+                  <span className="font-bold uppercase tracking-widest">Escalated to L3</span>
+                  <div className="mt-1">
+                    Use this tab to monitor tickets currently owned by L3 Advanced OEM Support. The counts below show how many escalations each L3 engineer is handling right now.
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {adminEscalatedByL3.length > 0 ? adminEscalatedByL3.map(([name, count]) => (
+                      <span key={name} className="rounded-full border border-purple-200 bg-white px-3 py-1 text-[11px] font-semibold text-purple-800">
+                        {name}: {count}
+                      </span>
+                    )) : (
+                      <span className="rounded-full border border-purple-200 bg-white px-3 py-1 text-[11px] font-semibold text-purple-800">
                         No escalations currently open.
                       </span>
                     )}
@@ -19530,6 +19561,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                           ? `No tickets with status "${complaintListStatusFilter}".`
                         : complaintListTab === "escalatedl2"
                           ? "No tickets currently escalated to L2."
+                        : complaintListTab === "escalatedl3"
+                          ? "No tickets currently escalated to L3."
                         : complaintListTab === "hold"
                           ? "No tickets on hold. Use Hold Ticket on an active ticket when the customer is unavailable, then resolve it from here later."
                           : complaintListTab === "sentonsite"

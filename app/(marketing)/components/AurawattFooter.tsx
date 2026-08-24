@@ -49,7 +49,7 @@ export default function AurawattFooter() {
             Uttar Pradesh - 201305
           </p>
           <p>
-            <strong>Phone:</strong> +91-95402 63987, +91-98711 25102
+            <strong>Phone:</strong> +91-92899 68572, +91-98711 25102
           </p>
           <p>
             <strong>e-Mail:</strong> info@avavbusiness.com
@@ -65,6 +65,9 @@ export default function AurawattFooter() {
           Born from <strong>AVAV Business Consulting Pvt Ltd</strong> · Evolved, Energized,
           Unstoppable
         </p>
+        <small>
+          Designed and Developed by <strong><Link href="https://www.kvantalabs.com">Kvanta Labs Pvt. Ltd.</Link></strong>
+        </small>
       </div>
     </footer>
   );
