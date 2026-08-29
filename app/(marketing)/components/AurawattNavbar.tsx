@@ -57,8 +57,10 @@ export default function AurawattNavbar() {
       <div className="topbar">
         <div className="topbar-left">
           <span>✉ info@avavbusiness.com</span>
-          <span>📞 +91 92899 68572</span>
+          <span>📞 +91 92899 60490</span>
           <span>📞 +91 98711 25102</span>
+          <span>📞 +91 93119 20641</span>
+          <span>📞 +91 92899 68572</span>
         </div>
         <div className="topbar-right">
           <a href="#" aria-label="Facebook">

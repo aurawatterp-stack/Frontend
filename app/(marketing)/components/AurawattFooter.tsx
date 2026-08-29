@@ -49,7 +49,7 @@ export default function AurawattFooter() {
             Uttar Pradesh - 201305
           </p>
           <p>
-            <strong>Phone:</strong> +91-92899 68572, +91-98711 25102
+            <strong>Phone:</strong> +91-92899 60490, +91-98711 25102, +91-93119 20641, +91-92899 68572
           </p>
           <p>
             <strong>e-Mail:</strong> info@avavbusiness.com
