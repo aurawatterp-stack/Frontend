@@ -28,7 +28,9 @@ export default function ContactPage() {
                 <span className="info-icon">📞</span>
                 <div>
                   <h4>Call Us</h4>
+                  <p>+91 9289960490</p>
                   <p>+91 9871125102</p>
+                  <p>+91 9311920641</p>
                   <p>+91 9289968572</p>
                 </div>
               </div>

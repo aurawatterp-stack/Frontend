@@ -113,8 +113,17 @@ export default function LoginScreen({
           <div className="border-t border-white/10 pt-6">
             <div className="text-[11px] font-bold uppercase tracking-widest text-blue-200/70">Help / Queries Contact Us</div>
             <div className="mt-2.5 flex flex-col gap-1.5">
-              <a href="tel:+919311920642" className="inline-flex items-center gap-2 text-[13px] text-blue-50/90 transition hover:text-white">
-                <IconPhone size={13} /> +91 9311920642
+              <a href="tel:+919289960490" className="inline-flex items-center gap-2 text-[13px] text-blue-50/90 transition hover:text-white">
+                <IconPhone size={13} /> +91 9289960490
+              </a>
+              <a href="tel:+919871125102" className="inline-flex items-center gap-2 text-[13px] text-blue-50/90 transition hover:text-white">
+                <IconPhone size={13} /> +91 9871125102
+              </a>
+              <a href="tel:+919311920641" className="inline-flex items-center gap-2 text-[13px] text-blue-50/90 transition hover:text-white">
+                <IconPhone size={13} /> +91 9311920641
+              </a>
+              <a href="tel:+919289968572" className="inline-flex items-center gap-2 text-[13px] text-blue-50/90 transition hover:text-white">
+                <IconPhone size={13} /> +91 9289968572
               </a>
               <a href="mailto:info@avavbusiness.com" className="inline-flex items-center gap-2 text-[13px] text-blue-50/90 transition hover:text-white">
                 <IconMail size={13} /> info@avavbusiness.com
@@ -261,8 +270,17 @@ export default function LoginScreen({
 
           {/* Mobile-only contact footer, since the brand aside is hidden below lg */}
           <div className="mt-6 flex flex-col items-center gap-1.5 text-[12px] text-slate-500 lg:hidden">
-            <a href="tel:+919311920642" className="inline-flex items-center gap-1.5 hover:text-slate-700">
-              <IconPhone size={12} /> +91 9311920642
+            <a href="tel:+919289960490" className="inline-flex items-center gap-1.5 hover:text-slate-700">
+              <IconPhone size={12} /> +91 9289960490
+            </a>
+            <a href="tel:+919871125102" className="inline-flex items-center gap-1.5 hover:text-slate-700">
+              <IconPhone size={12} /> +91 9871125102
+            </a>
+            <a href="tel:+919311920641" className="inline-flex items-center gap-1.5 hover:text-slate-700">
+              <IconPhone size={12} /> +91 9311920641
+            </a>
+            <a href="tel:+919289968572" className="inline-flex items-center gap-1.5 hover:text-slate-700">
+              <IconPhone size={12} /> +91 9289968572
             </a>
             <a href="mailto:info@avavbusiness.com" className="inline-flex items-center gap-1.5 hover:text-slate-700">
               <IconMail size={12} /> info@avavbusiness.com
