@@ -15176,6 +15176,11 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   const onsiteEngineerOptions = useMemo(() => serviceEngineersByRole.get(siteVisitRole) ?? [], [serviceEngineersByRole, siteVisitRole]);
   const pendingL3ApprovalComplaint = useMemo(() => complaintRows.find((complaint) => complaint.status === "Pending L3 Approval") ?? null, [complaintRows]);
   const selectedComplaint = complaintRows.find((complaint) => complaint.id === selectedComplaintId) ?? (currentRole === "L1 Engineer" ? null : pendingL3ApprovalComplaint ?? complaintRows[0] ?? null);
+  const isWaitingLobbyViewOnly = Boolean(
+    selectedComplaint &&
+    isWaitingLobbyComplaint(selectedComplaint) &&
+    !l1PromotedRowIds.has(selectedComplaint.id)
+  );
   const selectedOnsiteProgressUpdates = selectedComplaint?.progressUpdates ?? [];
   const onsiteActionBusy = Boolean(selectedComplaint) && serviceActionId === selectedComplaint?.id;
   /** Empty string means "Save & Send to L2" is allowed; otherwise it explains what is still missing. */
@@ -16206,14 +16211,11 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     setListOpen(false);
   };
 
-  const openInspectionForm = async (complaint: Complaint, fallbackStage?: ServiceStageId) => {
+  const openInspectionForm = async (complaint: Complaint, fallbackStage?: ServiceStageId | "viewonly") => {
     const isPromotedWaiting = complaintListTab === "active" && l1PromotedRowIds.has(complaint.id);
-    if (isWaitingLobbyComplaint(complaint) && !isPromotedWaiting) {
-      setFormError("Waiting Lobby tickets are queue only. Please open a ticket from Active Work to start work.");
-      return;
-    }
-    const stage = inspectionStageForComplaint(complaint, fallbackStage);
-    const shouldStart = canStartComplaintWork && canStartComplaintStatus(complaint.status) && !closedComplaintStatuses.includes(complaint.status) && !complaint.serviceStartedAt;
+    const isViewOnly = fallbackStage === "viewonly" || (isWaitingLobbyComplaint(complaint) && !isPromotedWaiting);
+    const stage = inspectionStageForComplaint(complaint, fallbackStage === "viewonly" ? undefined : fallbackStage);
+    const shouldStart = !isViewOnly && canStartComplaintWork && canStartComplaintStatus(complaint.status) && !closedComplaintStatuses.includes(complaint.status) && !complaint.serviceStartedAt;
     const startedAt = new Date();
     setFormError("");
     setFormOk("");
@@ -19463,6 +19465,11 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-sm font-bold text-gray-900">{selectedComplaint.productSerialNo || "No serial"}</span>
                         {complaintStatusBadge(selectedComplaint.status)}
+                        {isWaitingLobbyViewOnly && (
+                          <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-bold text-blue-800">
+                            👁️ View Only (Waiting Lobby)
+                          </span>
+                        )}
                         <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-600">
                           {selectedComplaint.status === HOLD_TICKET_STATUS
                             ? selectedComplaint.heldByName || selectedComplaint.assignedEngineerName || selectedComplaint.engineerName || "Held Ticket"
@@ -19600,7 +19607,19 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                           </button>
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {(!isWaitingLobbyComplaint(c) || (complaintListTab === "active" && l1PromotedRowIds.has(c.id))) ? (
+                            {isWaitingLobbyComplaint(c) && !(complaintListTab === "active" && l1PromotedRowIds.has(c.id)) ? (
+                              <button
+                                type="button"
+                                onClick={() => openInspectionForm(c, "viewonly")}
+                                disabled={serviceActionId === c.id}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition disabled:cursor-not-allowed disabled:opacity-60 ${selectedComplaint?.id === c.id
+                                  ? "border-blue-300 bg-blue-100 text-blue-700"
+                                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                                  }`}
+                              >
+                                {serviceActionId === c.id ? "Opening..." : "View Ticket"}
+                              </button>
+                            ) : (!isWaitingLobbyComplaint(c) || (complaintListTab === "active" && l1PromotedRowIds.has(c.id))) ? (
                               <button
                                 type="button"
                                 onClick={() => (complaintListTab === "closed"
