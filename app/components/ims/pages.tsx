@@ -19471,7 +19471,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       </div>
                       <div className="mt-1 line-clamp-2 text-sm text-gray-700">{selectedComplaint.issueDescription}</div>
                       <div className="mt-1 text-xs text-gray-500">
-                        Region: {selectedComplaint.region || "-"} | Priority: {selectedComplaint.priority || "Low"} | Contact: {selectedComplaint.customerPhone || "-"} | Source: {selectedComplaint.ticketSource || "ERP"}
+                        State: {selectedComplaint.state || selectedComplaint.region || "-"} | District: {selectedComplaint.district || "-"} | Contact: {selectedComplaint.customerPhone || "-"} | Source: {selectedComplaint.ticketSource || "ERP"}
                       </div>
                       {selectedComplaint.status === HOLD_TICKET_STATUS ? (
                         <div className="mt-1 text-xs text-orange-700">
@@ -19507,7 +19507,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   </div>
                 </div>
               )}
-              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "Region", "Priority", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue",
+              <Table headers={["Action", "#", "Ticket ID", "Serial", "Contact", "State", "District", "Engineer / Queue", "SLA Due", "Source", "Escalation", "Date & Time", "Issue",
                 currentRole === "L3 Advanced OEM Support" ? (
                   <div className="flex flex-col items-start gap-0.5">
                     <div className="flex items-center gap-1">
@@ -19660,8 +19660,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       <TD className="font-mono text-xs text-gray-800 whitespace-nowrap">{c.ticketNumber || c.id}</TD>
                       <TD className="font-mono text-xs text-gray-800">{c.replacementRequestSerialNo || c.replacementSerialNo || c.productSerialNo || "-"}</TD>
                       <TD className="font-mono text-xs text-gray-700">{c.customerPhone || "-"}</TD>
-                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.region || "-"}</TD>
-                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.priority || "Low"}</TD>
+                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.state || c.region || "-"}</TD>
+                      <TD className="text-gray-600 text-xs whitespace-nowrap">{c.district || "-"}</TD>
                       <TD className="text-gray-700 text-xs">
                         {isServiceEngineerRole && complaintListTab === "onsite" ? (
                           <>
