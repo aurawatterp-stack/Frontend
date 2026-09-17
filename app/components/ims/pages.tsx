@@ -14990,7 +14990,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   }, [adminEscalatedL3Rows]);
   const l2TeamNames = useMemo(() => new Set((myL1TeamRes.data ?? []).map((engineer) => engineer.name)), [myL1TeamRes.data]);
   const teamTicketRows = useMemo(() => {
-    if (currentRole === "L3 Advanced OEM Support") {
+    if (currentRole === "Admin" || currentRole === "L3 Advanced OEM Support") {
       return (complaintsRes.data?.data ?? []).filter((complaint) => !closedComplaintStatuses.includes(complaint.status));
     }
     if (currentRole === "L2 Technical Team") {
@@ -16647,7 +16647,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
 
     try {
       const existingNotes = String(reassignTargetComplaint.trackingNotes ?? "").trim();
-      const reassignNote = `${currentRole === "L2 Technical Team" ? "L2" : "L3"} reassigned ticket from ${reassignTargetComplaint.assignedEngineerName || "unassigned"} to ${target.name} (${target.role}) at ${new Date().toLocaleString()}.`;
+      const reassignRoleText = currentRole === "Admin" ? "Admin" : currentRole === "L2 Technical Team" ? "L2" : "L3";
+      const reassignNote = `${reassignRoleText} reassigned ticket from ${reassignTargetComplaint.assignedEngineerName || "unassigned"} to ${target.name} (${target.role}) at ${new Date().toLocaleString()}.`;
       await updateComplaintService(reassignTargetComplaint.id, {
         assignToEngineerId: target.id,
         assignToRole: reassignTargetRole,
@@ -19269,6 +19270,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     { id: "escalatedl3", label: "Escalated to L3", count: adminEscalatedL3Rows.length },
                     { id: "hold", label: "Hold Tickets", count: adminHoldRows.length },
                     { id: "inprogress", label: "In Progress", count: adminInProgressRows.length },
+                    { id: "team", label: "Team / Reassign", count: teamTicketRows.length },
                     { id: "closed", label: "Closed Tickets", count: closedQueueCount },
                   ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
@@ -19381,13 +19383,15 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
               {complaintListTab === "team" && (
                 <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <div className="mb-2 text-xs font-bold uppercase tracking-widest text-blue-700">
-                    {currentRole === "L2 Technical Team" ? "L2 Manager Reassign" : "L3 Manager Reassign"}
+                    {currentRole === "Admin" ? "Admin Ticket Reassignment" : currentRole === "L2 Technical Team" ? "L2 Manager Reassign" : "L3 Manager Reassign"}
                   </div>
                   {!reassignTargetComplaint ? (
                     <div className="rounded-lg border border-dashed border-blue-200 bg-white px-3 py-1 text-sm text-gray-500">
                       {currentRole === "L2 Technical Team"
                         ? "Select a ticket below (any ticket from an L1 engineer in your team) to view its SLA and reassign it to another L1 engineer."
-                        : "Select a ticket below (any L1 or L2 ticket) to view its SLA and reassign it to another engineer."}
+                        : currentRole === "Admin"
+                          ? "Select any ticket below to view its SLA and reassign it to any engineer or role."
+                          : "Select a ticket below (any L1 or L2 ticket) to view its SLA and reassign it to another engineer."}
                     </div>
                   ) : (
                     <div className="flex flex-col gap-3">
