@@ -67,6 +67,14 @@ export async function apiRequest<T>(
     headers.set("Content-Type", "application/json");
   }
 
+  // Prevent browser caching on all API requests so updates never return stale or cached CORS errors
+  if (!headers.has("Cache-Control")) {
+    headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+  }
+  if (!headers.has("Pragma")) {
+    headers.set("Pragma", "no-cache");
+  }
+
   const useAuth = init.auth !== false;
   if (useAuth) {
     const token = getAuthToken();
@@ -81,7 +89,7 @@ export async function apiRequest<T>(
   let res: Response;
   for (let attempt = 1; ; attempt += 1) {
     try {
-      res = await fetch(url, { ...init, headers });
+      res = await fetch(url, { cache: "no-store", ...init, headers });
       break;
     } catch (networkErr) {
       // fetch() rejects with a TypeError ("Failed to fetch") only for
