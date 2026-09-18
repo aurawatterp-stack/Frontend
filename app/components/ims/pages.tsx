@@ -8783,11 +8783,11 @@ function inferStateRegionFromText(...values: Array<string | undefined>) {
 }
 
 function isPlaceholderPiNumber(value: string) {
-  return /^PI-\d{4}-X+$/i.test(value.trim());
+  return /^(AVAV\/PI\/2627\/X+|PI-\d{4}-X+)$/i.test(value.trim());
 }
 
 function placeholderPiNumber() {
-  return `PI-${new Date().getFullYear()}-XXXX`;
+  return "AVAV/PI/2627/XXXX";
 }
 
 /** Area Allotted entries are stored as one "State - District" line per allotted area. Neither an
@@ -8853,12 +8853,11 @@ function groupDistributorsByState(rows: Customer[], targetStateRaw: string) {
 }
 
 function defaultPiNumber(existingSales: Sale[] = []) {
-  const year = new Date().getFullYear();
   const maxNumber = existingSales.reduce((max, saleItem) => {
-    const match = String(saleItem.referenceNo ?? "").match(new RegExp(`^PI-${year}-(\\d+)$`, "i"));
+    const match = String(saleItem.referenceNo ?? "").match(/(?:AVAV\/PI\/2627\/|PI-\d{4}-|PI-)(\d+)/i);
     return match ? Math.max(max, Number(match[1]) || 0) : max;
   }, 0);
-  return `PI-${year}-${String(maxNumber + 1).padStart(4, "0")}`;
+  return `AVAV/PI/2627/${String(maxNumber + 1).padStart(4, "0")}`;
 }
 
 function productLabel(product: Product) {
@@ -13120,7 +13119,9 @@ export function AccountsTeamPage() {
   const selectSale = (saleId: string) => {
     const saleItem = accountsRows.find((item) => item.id === saleId);
     setSelectedSaleId(saleId);
-    setTaxInvoiceNo(saleItem?.taxInvoiceNo ?? "");
+    const rawTi = saleItem?.taxInvoiceNo ?? "";
+    const formattedTi = rawTi ? (/^AVAV\/TI\/2627\//i.test(rawTi) ? rawTi : `AVAV/TI/2627/${rawTi}`) : "AVAV/TI/2627/";
+    setTaxInvoiceNo(formattedTi);
     setTaxInvoiceName(saleItem?.taxInvoiceAttachmentName ?? "");
     setTaxInvoiceUrl(saleItem?.taxInvoiceAttachmentUrl ?? "");
     setEwayBillName(saleItem?.ewayBillAttachmentName ?? "");
@@ -13202,10 +13203,12 @@ export function AccountsTeamPage() {
       setFormError("You can send it to the Dispatch Team only after the sales dispatch request has been generated.");
       return;
     }
-    if (!taxInvoiceNo.trim()) {
+    const tiToSubmit = taxInvoiceNo.trim();
+    if (!tiToSubmit || tiToSubmit === "AVAV/TI/2627/") {
       setFormError("Please enter the Tax Invoice No. (TI No.) before sending it to the Dispatch Team.");
       return;
     }
+    const normalizedTi = /^AVAV\/TI\/2627\//i.test(tiToSubmit) ? tiToSubmit : `AVAV/TI/2627/${tiToSubmit}`;
     if (!taxInvoiceName || !taxInvoiceUrl || !ewayBillName || !ewayBillUrl) {
       setFormError("Please upload both the Tax Invoice and the E-Way Bill for dispatch.");
       return;
@@ -13214,7 +13217,7 @@ export function AccountsTeamPage() {
     setSaving(true);
     try {
       await updateAccountsDocuments(selectedSaleId, {
-        taxInvoiceNo: taxInvoiceNo.trim(),
+        taxInvoiceNo: normalizedTi,
         taxInvoiceAttachmentName: taxInvoiceName,
         taxInvoiceAttachmentUrl: taxInvoiceUrl,
         ewayBillAttachmentName: ewayBillName,
@@ -13333,10 +13336,10 @@ export function AccountsTeamPage() {
                   value={taxInvoiceNo}
                   onChange={(event) => setTaxInvoiceNo(event.target.value)}
                   disabled={!canUploadAccountsDocs}
-                  placeholder="e.g. TI-2025-0001"
+                  placeholder="AVAV/TI/2627/0001"
                   className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-800 text-sm font-mono focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
                 />
-                <div className="mt-1 text-[11px] text-gray-400">Shown as Invoice No. in Sales Record once saved.</div>
+                <div className="mt-1 text-[11px] text-gray-400">Fixed prefix: AVAV/TI/2627/. Shown as Invoice No. in Sales Record once saved.</div>
               </div>
 
               <div>
