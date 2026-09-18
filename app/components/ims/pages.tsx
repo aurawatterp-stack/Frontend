@@ -2714,6 +2714,7 @@ export function CustomersPage() {
   const [q, setQ] = useState("");
   const customersRes = useAsyncData(() => listCustomers({ page: 1, limit: 500 }), []);
   const pendingCustomerRes = useAsyncData(listPendingCustomerRegistrations, []);
+  const geoRes = useAsyncData(getIndiaGeography, []);
   const [modalOpen, setModalOpen] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvingCustomerId, setApprovingCustomerId] = useState<string | null>(null);
@@ -2748,7 +2749,7 @@ export function CustomersPage() {
     status: string;
   }>({
     name: "",
-    type: "",
+    type: "Distributor",
     email: "",
     phone: "",
     address: "",
@@ -2777,6 +2778,28 @@ export function CustomersPage() {
   const [customerDocumentUploadError, setCustomerDocumentUploadError] = useState("");
   const [areaAllottedSlots, setAreaAllottedSlots] = useState<string[]>([""]);
   const [activeAreaSlotIndex, setActiveAreaSlotIndex] = useState(0);
+
+  const geoStateEntries = useMemo(() => geoRes.data?.stateDistrictEntries ?? [], [geoRes.data]);
+  const geoStateOptions = useMemo(
+    () => geoStateEntries.map((entry) => ({ value: entry.state, label: entry.state })),
+    [geoStateEntries]
+  );
+  const parsedAreaSlots = useMemo(
+    () => areaAllottedSlots.map((slot) => resolveAreaSlot(slot, geoStateEntries)),
+    [areaAllottedSlots, geoStateEntries]
+  );
+  const activeAreaSlot = parsedAreaSlots[activeAreaSlotIndex] ?? { state: "", district: "", legacy: "" };
+  const activeAreaDistrictOptions = useMemo(() => {
+    const districts = geoStateEntries.find((entry) => entry.state === activeAreaSlot.state)?.districts ?? [];
+    return districts.map((district) => ({ value: district, label: district }));
+  }, [geoStateEntries, activeAreaSlot.state]);
+
+  const setAreaSlotValue = (index: number, state: string, district: string) => {
+    syncAreaAllottedSlots(
+      areaAllottedSlots.map((slot, slotIndex) => (slotIndex === index ? formatAreaSlot(state, district) : slot)),
+      index
+    );
+  };
 
   const typeOptions = ["Distributor", "Individual"];
   const statusOptions = ["Active", "Inactive"];
@@ -3508,29 +3531,52 @@ export function CustomersPage() {
                           </button>
                         ))}
                       </div>
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <input
-                          value={areaAllottedSlots[activeAreaSlotIndex] ?? ""}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            setAreaAllottedSlots((current) => {
-                              const next = current.map((slot, slotIndex) => (slotIndex === activeAreaSlotIndex ? nextValue : slot));
-                              setForm((f) => ({
-                                ...f,
-                                areaAllotted: next.map((slot) => slot.trim()).filter(Boolean).join("\n"),
-                              }));
-                              return next;
-                            });
-                          }}
-                          placeholder={`Area / location ${activeAreaSlotIndex + 1}`}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1 text-sm text-gray-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <SearchableSelect
+                          label="State"
+                          value={activeAreaSlot.state}
+                          onChange={(next) => setAreaSlotValue(activeAreaSlotIndex, next, "")}
+                          options={geoStateOptions}
+                          placeholder="Select state / UT"
+                          loading={Boolean(geoRes.loading)}
+                          error={!geoStateOptions.length && !geoRes.loading ? "State list unavailable." : undefined}
+                        />
+                        <SearchableSelect
+                          label="District"
+                          value={activeAreaSlot.district}
+                          onChange={(next) => setAreaSlotValue(activeAreaSlotIndex, activeAreaSlot.state, next)}
+                          options={activeAreaDistrictOptions}
+                          placeholder={activeAreaSlot.state ? "Select district" : "Select state first"}
+                          disabled={!activeAreaSlot.state}
+                          loading={Boolean(geoRes.loading)}
+                          error={activeAreaSlot.state && !activeAreaDistrictOptions.length && !geoRes.loading ? "No district found for the selected state." : undefined}
                         />
                       </div>
-                      <div className="mt-2 text-[11px] text-gray-500">
-                        {areaAllottedSlots[activeAreaSlotIndex]?.trim()
-                          ? <>No. {activeAreaSlotIndex + 1}: {areaAllottedSlots[activeAreaSlotIndex]}</>
-                          : <>Fill No. {activeAreaSlotIndex + 1}, then use Add Next.</>
-                        }
+                      {areaAllottedSlots.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            syncAreaAllottedSlots(
+                              areaAllottedSlots.filter((_, slotIndex) => slotIndex !== activeAreaSlotIndex),
+                              Math.max(0, Math.min(activeAreaSlotIndex, areaAllottedSlots.length - 2))
+                            )
+                          }
+                          className="mt-2 h-9 rounded-lg border border-red-100 bg-white px-3 text-xs font-bold text-red-500 hover:bg-red-50"
+                        >
+                          Remove this area
+                        </button>
+                      ) : null}
+                      {activeAreaSlot.legacy ? (
+                        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                          Existing entry &quot;{activeAreaSlot.legacy}&quot; was saved as free text. It is kept as-is until you pick a State and District above.
+                        </div>
+                      ) : null}
+                      <div className="mt-2 min-h-5 text-xs text-gray-500">
+                        {areaAllottedSlots[activeAreaSlotIndex]?.trim() ? (
+                          <>No. {activeAreaSlotIndex + 1}: {areaAllottedSlots[activeAreaSlotIndex]}</>
+                        ) : (
+                          <>Select State and District for No. {activeAreaSlotIndex + 1}, then use Add Next.</>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -20153,6 +20199,7 @@ export function ComplaintsSupplierPage() {
 export function DistributorsPage() {
   const [q, setQ] = useState("");
   const distRes = useAsyncData(() => listDistributors({}), []);
+  const geoRes = useAsyncData(getIndiaGeography, []);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [viewOpen, setViewOpen] = useState(false);
@@ -20185,6 +20232,27 @@ export function DistributorsPage() {
   const [saving, setSaving] = useState(false);
   const [areaAllottedSlots, setAreaAllottedSlots] = useState<string[]>([""]);
   const [activeAreaSlotIndex, setActiveAreaSlotIndex] = useState(0);
+
+  const geoStateEntries = useMemo(() => geoRes.data?.stateDistrictEntries ?? [], [geoRes.data]);
+  const geoStateOptions = useMemo(
+    () => geoStateEntries.map((entry) => ({ value: entry.state, label: entry.state })),
+    [geoStateEntries]
+  );
+  const parsedAreaSlots = useMemo(
+    () => areaAllottedSlots.map((slot) => resolveAreaSlot(slot, geoStateEntries)),
+    [areaAllottedSlots, geoStateEntries]
+  );
+  const activeAreaSlot = parsedAreaSlots[activeAreaSlotIndex] ?? { state: "", district: "", legacy: "" };
+  const activeAreaDistrictOptions = useMemo(() => {
+    const districts = geoStateEntries.find((entry) => entry.state === activeAreaSlot.state)?.districts ?? [];
+    return districts.map((district) => ({ value: district, label: district }));
+  }, [geoStateEntries, activeAreaSlot.state]);
+  const setAreaSlotValue = (index: number, state: string, district: string) => {
+    syncAreaAllottedSlots(
+      areaAllottedSlots.map((slot, slotIndex) => (slotIndex === index ? formatAreaSlot(state, district) : slot)),
+      index
+    );
+  };
 
   const syncAreaAllottedSlots = (nextSlots: string[], nextActiveIndex = 0) => {
     const normalizedSlots = nextSlots.length ? nextSlots : [""];
@@ -20517,25 +20585,52 @@ export function DistributorsPage() {
                       </button>
                     ))}
                   </div>
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <input
-                      value={areaAllottedSlots[activeAreaSlotIndex] ?? ""}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        syncAreaAllottedSlots(
-                          areaAllottedSlots.map((slot, slotIndex) => (slotIndex === activeAreaSlotIndex ? nextValue : slot)),
-                          activeAreaSlotIndex
-                        );
-                      }}
-                      placeholder={`Area / location ${activeAreaSlotIndex + 1}`}
-                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1 text-sm text-gray-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <SearchableSelect
+                      label="State"
+                      value={activeAreaSlot.state}
+                      onChange={(next) => setAreaSlotValue(activeAreaSlotIndex, next, "")}
+                      options={geoStateOptions}
+                      placeholder="Select state / UT"
+                      loading={Boolean(geoRes.loading)}
+                      error={!geoStateOptions.length && !geoRes.loading ? "State list unavailable." : undefined}
+                    />
+                    <SearchableSelect
+                      label="District"
+                      value={activeAreaSlot.district}
+                      onChange={(next) => setAreaSlotValue(activeAreaSlotIndex, activeAreaSlot.state, next)}
+                      options={activeAreaDistrictOptions}
+                      placeholder={activeAreaSlot.state ? "Select district" : "Select state first"}
+                      disabled={!activeAreaSlot.state}
+                      loading={Boolean(geoRes.loading)}
+                      error={activeAreaSlot.state && !activeAreaDistrictOptions.length && !geoRes.loading ? "No district found for the selected state." : undefined}
                     />
                   </div>
-                  <div className="mt-2 text-[11px] text-gray-500">
-                    {areaAllottedSlots[activeAreaSlotIndex]?.trim()
-                      ? <>No. {activeAreaSlotIndex + 1}: {areaAllottedSlots[activeAreaSlotIndex]}</>
-                      : <>Fill No. {activeAreaSlotIndex + 1}, then use Add Next.</>
-                    }
+                  {areaAllottedSlots.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        syncAreaAllottedSlots(
+                          areaAllottedSlots.filter((_, slotIndex) => slotIndex !== activeAreaSlotIndex),
+                          Math.max(0, Math.min(activeAreaSlotIndex, areaAllottedSlots.length - 2))
+                        )
+                      }
+                      className="mt-2 h-9 rounded-lg border border-red-100 bg-white px-3 text-xs font-bold text-red-500 hover:bg-red-50"
+                    >
+                      Remove this area
+                    </button>
+                  ) : null}
+                  {activeAreaSlot.legacy ? (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                      Existing entry &quot;{activeAreaSlot.legacy}&quot; was saved as free text. It is kept as-is until you pick a State and District above.
+                    </div>
+                  ) : null}
+                  <div className="mt-2 min-h-5 text-xs text-gray-500">
+                    {areaAllottedSlots[activeAreaSlotIndex]?.trim() ? (
+                      <>No. {activeAreaSlotIndex + 1}: {areaAllottedSlots[activeAreaSlotIndex]}</>
+                    ) : (
+                      <>Select State and District for No. {activeAreaSlotIndex + 1}, then use Add Next.</>
+                    )}
                   </div>
                 </div>
               </div>
