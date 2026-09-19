@@ -8441,7 +8441,9 @@ type PiLineItem = {
   hsnSac: string;
   quantity: string;
   rate: string;
+  discount?: string;
   gstRate: string;
+  isFreight?: boolean;
   serialNumbers?: string[];
 };
 type PendingPiDraft = {
@@ -8671,11 +8673,11 @@ function PiWorkflowTimeline({ saleItem }: { saleItem?: Sale | null }) {
 }
 
 function blankPiLineItem(): PiLineItem {
-  return { materialName: "", hsnSac: "8504", quantity: "1", rate: "100", gstRate: "5" };
+  return { materialName: "", hsnSac: "850440", quantity: "1", rate: "100", discount: "0", gstRate: "5" };
 }
 
 function isBatteryItem(name: string) {
-  return name.toLowerCase().includes("battery");
+  return name.toLowerCase().includes("battery") || name.toLowerCase().includes("lfp");
 }
 
 function defaultRateForPriceCategory(priceCategory: string) {
@@ -8694,17 +8696,20 @@ function normalizePiLineItems(
   if (saleItem.piItems?.length) {
     return saleItem.piItems.map((item) => ({
       materialName: item.materialName,
-      hsnSac: item.hsnSac || "8504",
+      hsnSac: item.hsnSac || (item.isFreight ? "996511" : isBatteryItem(item.materialName) ? "850760" : "850440"),
       quantity: String(item.quantity || 1),
       rate: String(item.rate || defaultRateForPriceCategory(saleItem.priceCategory ?? "")),
-      gstRate: String(item.gstRate ?? (isBatteryItem(item.materialName) ? 18 : 5)),
+      discount: String(item.discount || 0),
+      gstRate: String(item.gstRate ?? (item.isFreight ? 18 : isBatteryItem(item.materialName) ? 18 : 5)),
+      isFreight: Boolean(item.isFreight),
     }));
   }
   return [{
     materialName: saleItem.materialName ?? "",
-    hsnSac: "8504",
+    hsnSac: isBatteryItem(saleItem.materialName ?? "") ? "850760" : "850440",
     quantity: String(saleItem.quantity ?? 1),
     rate: String(defaultRateForPriceCategory(saleItem.priceCategory ?? "")),
+    discount: "0",
     gstRate: String(isBatteryItem(saleItem.materialName ?? "") ? 18 : 5),
   }];
 }
@@ -8712,10 +8717,12 @@ function normalizePiLineItems(
 function piLineItemNumbers(item: PiLineItem) {
   const quantity = Math.max(0, Number(item.quantity) || 0);
   const rate = Math.max(0, Number(item.rate) || 0);
+  const discount = Math.max(0, Number(item.discount) || 0);
   const gstRate = Math.max(0, Number(item.gstRate) || 0);
-  const taxable = quantity * rate;
+  const totalRaw = quantity * rate;
+  const taxable = Math.max(0, totalRaw - discount);
   const gst = Math.round((taxable * gstRate) / 100);
-  return { quantity, rate, gstRate, taxable, gst, total: taxable + gst };
+  return { quantity, rate, discount, gstRate, totalRaw, taxable, gst, total: taxable + gst };
 }
 
 function inrAmount(value: number) {
@@ -8751,19 +8758,22 @@ function numberToIndianWords(value: number) {
 function piLineItemPayload(items: PiLineItem[]) {
   return items.map((item) => ({
     materialName: item.materialName.trim(),
-    hsnSac: item.hsnSac.trim() || "8504",
+    hsnSac: item.hsnSac.trim() || (item.isFreight ? "996511" : "850440"),
     quantity: Math.max(0, Number(item.quantity) || 0),
     rate: Math.max(0, Number(item.rate) || 0),
+    discount: Math.max(0, Number(item.discount) || 0),
     gstRate: Math.max(0, Number(item.gstRate) || 0),
-  })).filter((item) => item.materialName && item.quantity > 0);
+    isFreight: Boolean(item.isFreight),
+  })).filter((item) => item.materialName && (item.quantity > 0 || item.isFreight));
 }
 
 function piTaxGroups(items: PiLineItem[]) {
   return Array.from(items.reduce((groups, item) => {
     const itemNumbers = piLineItemNumbers(item);
     if (!item.materialName.trim() && itemNumbers.taxable <= 0) return groups;
-    const key = `${item.hsnSac || "8504"}-${itemNumbers.gstRate}`;
-    const existing = groups.get(key) ?? { hsnSac: item.hsnSac || "8504", gstRate: itemNumbers.gstRate, taxable: 0, tax: 0 };
+    const hsn = item.hsnSac || (item.isFreight ? "996511" : "850440");
+    const key = `${hsn}-${itemNumbers.gstRate}`;
+    const existing = groups.get(key) ?? { hsnSac: hsn, gstRate: itemNumbers.gstRate, taxable: 0, tax: 0 };
     existing.taxable += itemNumbers.taxable;
     existing.tax += itemNumbers.gst;
     groups.set(key, existing);
@@ -10539,11 +10549,17 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
         if (itemIndex !== index) return item;
         const nextItem = { ...item, ...updates };
         if (updates.materialName !== undefined) {
+          const prod = productByLabel.get(updates.materialName);
           const lockedPriceCategory = registeredPiPriceCategory(dealerRegistered === "Yes", priceCategory);
-          const defaults = productPiDefaults(productByLabel.get(updates.materialName), lockedPriceCategory, stateRegion);
-          Object.assign(nextItem, lockedPriceCategory === "Manual"
-            ? { hsnSac: defaults.hsnSac, gstRate: defaults.gstRate }
-            : defaults);
+          const defaults = productPiDefaults(prod, lockedPriceCategory, stateRegion);
+          const catalogHsn = prod?.hsnSac || defaults.hsnSac;
+          const catalogGst = prod?.gstRate !== undefined ? String(prod.gstRate) : defaults.gstRate;
+          Object.assign(
+            nextItem,
+            lockedPriceCategory === "Manual"
+              ? { hsnSac: catalogHsn, gstRate: catalogGst }
+              : { ...defaults, hsnSac: catalogHsn, gstRate: catalogGst }
+          );
         }
         return nextItem;
       })
@@ -10552,6 +10568,12 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   const addPiItem = () => {
     const lockedPriceCategory = registeredPiPriceCategory(dealerRegistered === "Yes", priceCategory);
     setPiItems((current) => [...current, { ...blankPiLineItem(), rate: lockedPriceCategory === "Manual" ? "" : String(defaultRateForPriceCategory(lockedPriceCategory)) }]);
+  };
+  const addFreightPiItem = () => {
+    setPiItems((current) => [
+      ...current,
+      { materialName: "Freight Outward", hsnSac: "996511", quantity: "1", rate: "1500", discount: "0", gstRate: "18", isFreight: true }
+    ]);
   };
   const removePiItem = (index: number) => {
     setPiItems((current) => (current.length === 1 ? current : current.filter((_, itemIndex) => itemIndex !== index)));
@@ -11428,7 +11450,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                   <table className="min-w-full text-sm text-gray-900">
                     <thead>
                       <tr className="bg-gray-50">
-                        {["SI No.", "Description of Item", "HSN/SAC", "QTY", "Rate", "Total", "GST Rate", "Total after GST"].map((header) => (
+                        {["SI No.", "Description of Item", "HSN/SAC", "QTY", "Rate", "Total", "Disc.", "Total After Disc.", "GST Rate", "Total after GST"].map((header) => (
                           <th key={header} className="border border-gray-300 px-2 py-2 text-center font-bold">{header}</th>
                         ))}
                       </tr>
@@ -11451,29 +11473,38 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                               )}
                             </td>
                             <td className="border border-gray-300 px-2 py-2">
-                              <select
-                                value={item.materialName}
-                                onChange={(event) => {
-                                  updatePiItem(itemIndex, { materialName: event.target.value });
-                                  if (itemIndex === 0) setMaterialName(event.target.value);
-                                }}
-                                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-semibold text-gray-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
-                              >
-                                <option value="">Select product specification...</option>
-                                {productsRes.loading ? (
-                                  <option value="" disabled>Loading products...</option>
-                                ) : productsRes.error ? (
-                                  <option value="" disabled>Products access error</option>
-                                ) : materialOptions.length === 0 ? (
-                                  <option value="" disabled>No products available</option>
-                                ) : (
-                                  materialOptions.map((optionItem) => <option key={optionItem} value={optionItem}>{optionItem}</option>)
-                                )}
-                              </select>
+                              {item.isFreight ? (
+                                <input
+                                  value={item.materialName}
+                                  onChange={(event) => updatePiItem(itemIndex, { materialName: event.target.value })}
+                                  placeholder="Freight Outward"
+                                  className="w-full rounded-md border border-gray-300 bg-gray-50 px-2 py-1.5 font-bold text-gray-900 outline-none"
+                                />
+                              ) : (
+                                <select
+                                  value={item.materialName}
+                                  onChange={(event) => {
+                                    updatePiItem(itemIndex, { materialName: event.target.value });
+                                    if (itemIndex === 0) setMaterialName(event.target.value);
+                                  }}
+                                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-semibold text-gray-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                                >
+                                  <option value="">Select product specification...</option>
+                                  {productsRes.loading ? (
+                                    <option value="" disabled>Loading products...</option>
+                                  ) : productsRes.error ? (
+                                    <option value="" disabled>Products access error</option>
+                                  ) : materialOptions.length === 0 ? (
+                                    <option value="" disabled>No products available</option>
+                                  ) : (
+                                    materialOptions.map((optionItem) => <option key={optionItem} value={optionItem}>{optionItem}</option>)
+                                  )}
+                                </select>
+                              )}
                               {productsRes.error && (
                                 <div className="mt-1 text-[11px] font-medium text-red-600">{productsRes.error}</div>
                               )}
-                              {item.materialName && materialOptionSet.has(item.materialName) && (
+                              {item.materialName && !item.isFreight && materialOptionSet.has(item.materialName) && (
                                 <div className="mt-1 text-[11px] text-gray-500">
                                   Available stock: <span className="font-mono font-semibold">{stockByMaterial.get(item.materialName) ?? 0}</span>
                                   <span className="ml-1 text-gray-400">(from In Stock manufactured serials)</span>
@@ -11492,7 +11523,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                                   updatePiItem(itemIndex, { quantity: event.target.value });
                                   if (itemIndex === 0) setQuantity(event.target.value);
                                 }}
-                                className="w-16 bg-transparent text-center font-mono text-gray-900 outline-none"
+                                className="w-14 bg-transparent text-center font-mono text-gray-900 outline-none"
                               />
                             </td>
                             <td className="border border-gray-300 px-2 py-2 text-right">
@@ -11500,24 +11531,34 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                                 type="number"
                                 min="0"
                                 value={item.rate}
-                                readOnly={dealerRegistered === "Yes"}
-                                aria-readonly={dealerRegistered === "Yes"}
-                                title={dealerRegistered === "Yes" ? "Rates are fixed for registered PIs." : undefined}
+                                readOnly={dealerRegistered === "Yes" && !item.isFreight}
+                                aria-readonly={dealerRegistered === "Yes" && !item.isFreight}
+                                title={dealerRegistered === "Yes" && !item.isFreight ? "Rates are fixed for registered PIs." : undefined}
                                 onChange={(event) => {
-                                  if (dealerRegistered === "Yes") return;
+                                  if (dealerRegistered === "Yes" && !item.isFreight) return;
                                   updatePiItem(itemIndex, { rate: event.target.value });
                                 }}
-                                className={`w-20 bg-transparent text-right font-mono text-gray-900 outline-none ${dealerRegistered === "Yes" ? "cursor-not-allowed bg-gray-50 text-gray-500" : ""}`}
+                                className={`w-20 bg-transparent text-right font-mono text-gray-900 outline-none ${dealerRegistered === "Yes" && !item.isFreight ? "cursor-not-allowed bg-gray-50 text-gray-500" : ""}`}
                               />
                             </td>
-                            <td className="border border-gray-300 px-2 py-2 text-right font-mono">{inrAmount(itemNumbers.taxable)}</td>
+                            <td className="border border-gray-300 px-2 py-2 text-right font-mono">{inrAmount(itemNumbers.totalRaw)}</td>
+                            <td className="border border-gray-300 px-2 py-2 text-right font-mono">
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.discount ?? "0"}
+                                onChange={(event) => updatePiItem(itemIndex, { discount: event.target.value })}
+                                className="w-16 bg-transparent text-right font-mono text-gray-900 outline-none"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2 text-right font-mono font-semibold">{inrAmount(itemNumbers.taxable)}</td>
                             <td className="border border-gray-300 px-2 py-2 text-center">
                               <input
                                 type="number"
                                 min="0"
                                 value={item.gstRate}
                                 onChange={(event) => updatePiItem(itemIndex, { gstRate: event.target.value })}
-                                className="w-14 bg-transparent text-center font-mono text-gray-900 outline-none"
+                                className="w-12 bg-transparent text-center font-mono text-gray-900 outline-none"
                               />%
                             </td>
                             <td className="border border-gray-300 px-2 py-2 text-right font-bold">₹ {inrAmount(itemNumbers.total)}</td>
@@ -11528,6 +11569,8 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                         <td colSpan={3} className="border border-gray-300 px-2 py-2 text-center">Total</td>
                         <td className="border border-gray-300 px-2 py-2 text-center">{requestedQuantity}</td>
                         <td className="border border-gray-300 px-2 py-2" />
+                        <td className="border border-gray-300 px-2 py-2 text-right">{inrAmount(piItems.reduce((sum, item) => sum + piLineItemNumbers(item).totalRaw, 0))}</td>
+                        <td className="border border-gray-300 px-2 py-2 text-right">{inrAmount(piItems.reduce((sum, item) => sum + piLineItemNumbers(item).discount, 0))}</td>
                         <td className="border border-gray-300 px-2 py-2 text-right">{inrAmount(taxableAmount)}</td>
                         <td className="border border-gray-300 px-2 py-2" />
                         <td className="border border-gray-300 px-2 py-2 text-right">₹ {inrAmount(invoiceTotal)}</td>
@@ -11535,13 +11578,20 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                     </tbody>
                   </table>
                 </div>
-                <div className="border-t border-gray-300 bg-gray-50 px-3 py-1">
+                <div className="flex flex-wrap items-center gap-2 border-t border-gray-300 bg-gray-50 px-3 py-2">
                   <button
                     type="button"
                     onClick={addPiItem}
                     className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-50"
                   >
                     <IconPlus size={14} /> Add Item
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addFreightPiItem}
+                    className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100"
+                  >
+                    <IconPlus size={14} /> Add Freight Outward (SAC 996511 @ 18%)
                   </button>
                 </div>
                 <div className="overflow-x-auto border-t border-gray-300">

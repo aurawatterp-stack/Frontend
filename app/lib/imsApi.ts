@@ -200,9 +200,13 @@ export type Sale = {
     hsnSac?: string;
     quantity: number;
     rate: number;
+    discount?: number;
     gstRate: number;
+    isFreight?: boolean;
     serialNumbers?: string[];
   }[];
+  freightAmount?: number;
+  discountTotal?: number;
   stateRegion?: string;
   dealerRegistered?: boolean;
   rjApprovalStatus?: string;
