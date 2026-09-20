@@ -8217,6 +8217,7 @@ const SERVICE_STAGE_TABS = [
   { id: "l1", label: "L1 Inspection" },
   { id: "onsite", label: "Onsite Inspection" },
   { id: "l2", label: "L2 Diagnosis" },
+  { id: "escalatedl3", label: "Escalated to L3" },
   { id: "warehouse", label: "Warehouse" },
   { id: "accounts", label: "Accounts Approval" },
   { id: "l3", label: "L3 Support" },
@@ -8245,7 +8246,7 @@ const HOLD_TICKET_STATUS = "On Hold";
 
 function serviceStagesForPermissions(permissions: string[], role?: string): ServiceStageId[] {
   const perms = new Set(permissions);
-  if (role === "Admin") return ["intake", "l1", "onsite", "l2", "l3", "closed"];
+  if (role === "Admin") return ["intake", "l1", "onsite", "l2", "escalatedl3", "l3", "closed"];
   if (role === "L1 Engineer" || role === "L1 Backup Engineer") {
     return ["intake", "l1", "onsite", "closed"];
   }
@@ -17181,17 +17182,23 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         <div className="mb-5 flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2">
           {visibleServiceTabs.map((tab) => {
             const active = serviceStage === tab.id;
+            const count = tab.id === "escalatedl3" ? adminEscalatedL3Rows.length : undefined;
             return (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setServiceStage(tab.id)}
-                className={`rounded-lg px-3 py-1 text-xs font-bold transition ${active
+                className={`rounded-lg px-3 py-1 text-xs font-bold transition flex items-center gap-1.5 ${active
                   ? "bg-white text-amber-700 shadow-sm border border-amber-200"
                   : "text-gray-500 hover:bg-white hover:text-gray-800 border border-transparent"
                   }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                {count !== undefined && (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${active ? "bg-amber-100 text-amber-800" : "bg-purple-100 text-purple-700"}`}>
+                    {count}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -18381,6 +18388,84 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                   {serviceActionId === selectedServiceComplaint.id ? "Sending..." : "Escalate to L3"}
                 </button>
               </div>
+            )}
+          </div>
+        )}
+
+        {serviceStage === "escalatedl3" && (
+          <div className="mb-6">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Escalated to L3 (Advanced OEM Support)</div>
+                <div className="mt-1 text-xs text-gray-500">
+                  All consumer complaints escalated to the L3 Advanced OEM Support team. Select a ticket to view readings, diagnosis, and reports.
+                </div>
+              </div>
+              <Badge color="purple">{adminEscalatedL3Rows.length} Escalated to L3</Badge>
+            </div>
+
+            <div className="mb-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+              <div className="text-xs font-bold uppercase tracking-widest text-purple-900 mb-1">L3 Workload Summary</div>
+              <div className="text-xs text-purple-700 mb-3">Escalations handled per L3 support engineer:</div>
+              <div className="flex flex-wrap gap-2">
+                {adminEscalatedByL3.length > 0 ? (
+                  adminEscalatedByL3.map(([name, count]) => (
+                    <span key={name} className="rounded-full border border-purple-200 bg-white px-3 py-1 text-[11px] font-semibold text-purple-800">
+                      {name}: {count} ticket{count === 1 ? "" : "s"}
+                    </span>
+                  ))
+                ) : (
+                  <span className="rounded-full border border-purple-200 bg-white px-3 py-1 text-[11px] font-semibold text-purple-800">
+                    No active L3 escalations.
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="text-xs font-bold text-gray-700 mb-2">Escalated L3 Tickets Queue:</div>
+              {adminEscalatedL3Rows.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                  No tickets are currently escalated to L3.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {adminEscalatedL3Rows.map((complaint) => {
+                    const active = selectedServiceComplaint?.id === complaint.id;
+                    return (
+                      <button
+                        key={complaint.id}
+                        type="button"
+                        onClick={() => setSelectedComplaintId(complaint.id)}
+                        className={`rounded-xl border p-3 text-left transition ${
+                          active
+                            ? "border-purple-400 bg-purple-50/50 shadow-sm ring-2 ring-purple-100"
+                            : "border-gray-200 bg-white hover:border-purple-200 hover:bg-gray-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono font-bold text-gray-900 text-xs">{complaint.ticketNumber || complaint.id}</span>
+                          <Badge color="purple">{complaint.status}</Badge>
+                        </div>
+                        <div className="mt-1 text-xs font-semibold text-gray-700">{complaint.customerName} ({complaint.region || complaint.state || "UP"})</div>
+                        <div className="mt-0.5 truncate text-[11px] text-gray-500 font-mono">SN: {complaint.productSerialNo || "No serial"}</div>
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500 border-t border-gray-100 pt-1.5">
+                          <span>Assigned: {complaint.assignedEngineerName || complaint.engineerName || "Unassigned"}</span>
+                          <span className="font-semibold text-purple-700">L3 Escalated</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {renderTicketSerialPicker()}
+            {selectedServiceComplaint && (
+              <>
+                {renderServiceReport("L1 Report", l1ReportRows)}
+                {renderServiceReport("L2 Report", l2ReportRows)}
+              </>
             )}
           </div>
         )}
