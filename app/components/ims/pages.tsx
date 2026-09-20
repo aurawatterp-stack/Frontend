@@ -14994,7 +14994,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       // ticket in the system shows up in L3's Active Work too.
       return sortedRows.filter((complaint) => (
         !isClosed(complaint.status) &&
-        (complaint.escalationLevel === "L3" || complaint.status === "Escalated to L3" || complaint.status === "Pending L3 Approval")
+        (complaint.escalationLevel === "L3" || complaint.status === "Escalated to L3" || complaint.status === "Pending L3 Approval" || complaint.l3SupportRequired === true)
       ));
     }
 
@@ -15089,10 +15089,10 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
   }, [adminEscalatedL3Rows]);
   const l2TeamNames = useMemo(() => new Set((myL1TeamRes.data ?? []).map((engineer) => engineer.name)), [myL1TeamRes.data]);
   const teamTicketRows = useMemo(() => {
-    if (currentRole === "Admin" || currentRole === "L3 Advanced OEM Support") {
+    if (currentRole === "Admin" || currentServiceAssignmentRole === "L3 Advanced OEM Support") {
       return (complaintsRes.data?.data ?? []).filter((complaint) => !closedComplaintStatuses.includes(complaint.status));
     }
-    if (currentRole === "L2 Technical Team") {
+    if (currentServiceAssignmentRole === "L2 Technical Team") {
       return (complaintsRes.data?.data ?? []).filter((complaint) => (
         !closedComplaintStatuses.includes(complaint.status) &&
         Boolean(complaint.assignedEngineerName) &&
@@ -15100,7 +15100,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
       ));
     }
     return [];
-  }, [complaintsRes.data, currentRole, l2TeamNames]);
+  }, [complaintsRes.data, currentRole, currentServiceAssignmentRole, l2TeamNames]);
   const l1PromotedRowIds = useMemo(() => new Set(
     l1WaitingRows.slice(0, Math.max(0, 5 - l1ActiveRows.length)).map((complaint) => complaint.id)
   ), [l1WaitingRows, l1ActiveRows.length]);
@@ -15140,19 +15140,25 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     if (complaintListTab === "l1backup") {
       return l1BackupRows;
     }
+    if (currentServiceAssignmentRole === "L3 Advanced OEM Support") {
+      return complaintRows;
+    }
     const activeRows = l1ActiveRows.slice(0, 5);
     if (activeRows.length < 5) {
       return [...activeRows, ...l1WaitingRows.slice(0, 5 - activeRows.length)];
     }
     return activeRows;
-  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminEscalatedL3Rows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, sentForOnsiteRows, closedQueueRows, currentUser?.id, currentUser?.name]);
+  }, [complaintListTab, complaintRows, isServiceAdmin, isServiceEngineerRole, currentServiceAssignmentRole, adminWaitingRows, adminAssignedRows, adminEscalatedRows, adminEscalatedL3Rows, adminHoldRows, adminInProgressRows, l1ActiveRows, l1WaitingRows, l1HoldRows, l1BackupRows, dispatchTrackingRows, teamTicketRows, sentForOnsiteRows, closedQueueRows, currentUser?.id, currentUser?.name]);
   const l1ActiveTicketCount = useMemo(() => l1ActiveRows.length, [l1ActiveRows]);
   const dispatchTrackingCount = useMemo(() => dispatchTrackingRows.length, [dispatchTrackingRows]);
   const l1WaitingTicketCount = useMemo(() => complaintRows.filter((complaint) => (
     complaint.assignmentStatus === "Waiting" && complaint.status === "Waiting Lobby"
   )).length, [complaintRows]);
   const l1PromotedWaitingCount = useMemo(() => l1PromotedRowIds.size, [l1PromotedRowIds]);
-  const l1VisibleActiveTicketCount = useMemo(() => Math.min(5, l1ActiveRows.length + l1PromotedWaitingCount), [l1ActiveRows.length, l1PromotedWaitingCount]);
+  const l1VisibleActiveTicketCount = useMemo(() => {
+    if (currentServiceAssignmentRole === "L3 Advanced OEM Support") return complaintRows.length;
+    return Math.min(5, l1ActiveRows.length + l1PromotedWaitingCount);
+  }, [currentServiceAssignmentRole, complaintRows.length, l1ActiveRows.length, l1PromotedWaitingCount]);
   const l1VisibleWaitingTicketCount = useMemo(() => Math.max(0, l1WaitingTicketCount - l1PromotedWaitingCount), [l1WaitingTicketCount, l1PromotedWaitingCount]);
   const l1OnsiteTicketCount = useMemo(() => complaintRows.filter(isOnsiteAssignedToCurrentUser).length, [complaintRows, currentUser?.id, currentUser?.name]);
   const sentForOnsiteCount = useMemo(() => sentForOnsiteRows.length, [sentForOnsiteRows]);
@@ -19339,7 +19345,9 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 <div className="text-base font-bold text-gray-900">Consumer Complaint Queue</div>
                 <div className="text-xs text-gray-500">
                   {isServiceEngineerRole
-                    ? `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${sentForOnsiteCount > 0 ? ` | Sent for Onsite: ${sentForOnsiteCount}` : ""}${currentRole === "L3 Advanced OEM Support" ? ` | Spare/Replacement: ${dispatchTrackingCount}` : ""} | Closed: ${closedQueueCount}`
+                    ? currentServiceAssignmentRole === "L3 Advanced OEM Support"
+                      ? `Active: ${complaintRows.length} | Hold: ${l1HoldRows.length} | Spare/Replacement: ${dispatchTrackingCount} | Closed: ${closedQueueCount}`
+                      : `Active: ${l1VisibleActiveTicketCount}/5 | Waiting: ${Math.min(l1VisibleWaitingTicketCount, 5)}/5 | Onsite: ${l1OnsiteTicketCount}${sentForOnsiteCount > 0 ? ` | Sent for Onsite: ${sentForOnsiteCount}` : ""} | Closed: ${closedQueueCount}`
                   : isServiceAdmin
                       ? `Waiting Lobby: ${adminWaitingRows.length} | Assigned to Engineer: ${adminAssignedRows.length} | Escalated to L2: ${adminEscalatedRows.length} | Escalated to L3: ${adminEscalatedL3Rows.length} | On Hold: ${adminHoldRows.length} | In Progress: ${adminInProgressRows.length} | Closed: ${closedQueueCount} | ${filteredComplaintRows.length} of ${complaintRows.length} tickets`
                       : `${filteredComplaintRows.length} of ${complaintRows.length} tickets`}
@@ -19375,18 +19383,18 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                     { id: "closed", label: "Closed Tickets", count: closedQueueCount },
                   ] : [
                     { id: "active", label: "Active Work", count: l1VisibleActiveTicketCount },
-                    { id: "waiting", label: "Waiting Lobby", count: Math.min(l1VisibleWaitingTicketCount, 5) },
+                    ...(currentServiceAssignmentRole !== "L3 Advanced OEM Support" ? [{ id: "waiting", label: "Waiting Lobby", count: Math.min(l1VisibleWaitingTicketCount, 5) }] : []),
                     { id: "hold", label: "Hold Tickets", count: l1HoldRows.length },
-                    { id: "onsite", label: "Onsite", count: l1OnsiteTicketCount },
+                    ...(currentServiceAssignmentRole !== "L3 Advanced OEM Support" ? [{ id: "onsite", label: "Onsite", count: l1OnsiteTicketCount }] : []),
                     // Shown to the roles that dispatch onsite visits (L2/L3), and to anyone else
                     // who currently has a ticket out with an onsite engineer.
-                    ...((currentRole === "L2 Technical Team" || currentRole === "L3 Advanced OEM Support" || sentForOnsiteCount > 0)
+                    ...((currentServiceAssignmentRole === "L2 Technical Team" || currentServiceAssignmentRole === "L3 Advanced OEM Support" || sentForOnsiteCount > 0)
                       ? [{ id: "sentonsite", label: "Sent for Onsite by Me", count: sentForOnsiteCount }]
                       : []),
                     ...((amIL1BackupRes.data?.isL1Backup || l1BackupRows.length > 0) ? [{ id: "l1backup", label: "L1 Backup", count: l1BackupRows.length }] : []),
-                    ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "dispatch", label: "Spare/Replacement", count: dispatchTrackingCount }] : []),
-                    ...(currentRole === "L3 Advanced OEM Support" ? [{ id: "team", label: "All Tickets", count: teamTicketRows.length }] : []),
-                    ...(currentRole === "L2 Technical Team" ? [{ id: "team", label: "All L1 Tickets", count: teamTicketRows.length }] : []),
+                    ...(currentServiceAssignmentRole === "L3 Advanced OEM Support" ? [{ id: "dispatch", label: "Spare/Replacement", count: dispatchTrackingCount }] : []),
+                    ...(currentServiceAssignmentRole === "L3 Advanced OEM Support" ? [{ id: "team", label: "All Tickets", count: teamTicketRows.length }] : []),
+                    ...(currentServiceAssignmentRole === "L2 Technical Team" ? [{ id: "team", label: "All L1 Tickets", count: teamTicketRows.length }] : []),
                     { id: "closed", label: "Closed Tickets", count: closedQueueCount },
                   ]).map((tab) => {
                     const active = complaintListTab === tab.id;
