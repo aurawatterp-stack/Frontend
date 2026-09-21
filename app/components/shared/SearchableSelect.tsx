@@ -128,8 +128,8 @@ export function SearchableSelect({
         }}
         className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-slate-800 shadow-sm transition hover:border-amber-300 hover:shadow-md disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
       >
-        <span className={`truncate ${selectedOption ? "font-semibold" : "text-slate-400"}`}>
-          {selectedOption?.label || placeholder}
+        <span className={`truncate ${selectedOption || value ? "font-semibold" : "text-slate-400"}`}>
+          {selectedOption?.label || value || placeholder}
         </span>
         <span className="shrink-0 text-slate-400">▾</span>
       </button>
