@@ -38,6 +38,8 @@ export type PendingCustomerRegistration = {
   phone: string;
   address?: string;
   stateRegion?: string;
+  state?: string;
+  district?: string;
   registrationCode?: string;
   dateOfRegistration?: string;
   gst?: string;
@@ -84,6 +86,8 @@ export type Customer = {
   registrationCode?: string;
   address?: string;
   stateRegion?: string;
+  state?: string;
+  district?: string;
   dateOfRegistration?: string;
   cinNo?: string;
   tan?: string;
@@ -751,6 +755,8 @@ export async function createCustomer(input: {
   phone: string;
   address?: string;
   stateRegion?: string;
+  state?: string;
+  district?: string;
   registrationCode?: string;
   dateOfRegistration?: string;
   gst?: string;
@@ -777,6 +783,8 @@ export async function requestCustomerRegistration(input: {
   phone: string;
   address?: string;
   stateRegion?: string;
+  state?: string;
+  district?: string;
   registrationCode?: string;
   dateOfRegistration?: string;
   gst?: string;
@@ -823,6 +831,8 @@ export async function updateCustomer(
     phone?: string;
     address?: string;
     stateRegion?: string;
+    state?: string;
+    district?: string;
     registrationCode?: string;
     dateOfRegistration?: string;
     gst?: string;
@@ -853,6 +863,8 @@ export async function updatePendingCustomerRegistration(
     phone?: string;
     address?: string;
     stateRegion?: string;
+    state?: string;
+    district?: string;
     registrationCode?: string;
     dateOfRegistration?: string;
     gst?: string;

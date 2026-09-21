@@ -2731,6 +2731,8 @@ export function CustomersPage() {
     phone: string;
     address: string;
     stateRegion: string;
+    state: string;
+    district: string;
     registrationCode: string;
     dateOfRegistration: string;
     gst: string;
@@ -2754,6 +2756,8 @@ export function CustomersPage() {
     phone: "",
     address: "",
     stateRegion: "",
+    state: "",
+    district: "",
     registrationCode: "",
     dateOfRegistration: "",
     gst: "",
@@ -2793,6 +2797,10 @@ export function CustomersPage() {
     const districts = geoStateEntries.find((entry) => entry.state === activeAreaSlot.state)?.districts ?? [];
     return districts.map((district) => ({ value: district, label: district }));
   }, [geoStateEntries, activeAreaSlot.state]);
+  const primaryCustomerDistrictOptions = useMemo(() => {
+    const districts = geoStateEntries.find((entry) => entry.state === form.state)?.districts ?? [];
+    return districts.map((district) => ({ value: district, label: district }));
+  }, [geoStateEntries, form.state]);
 
   const setAreaSlotValue = (index: number, state: string, district: string) => {
     syncAreaAllottedSlots(
@@ -2879,6 +2887,8 @@ export function CustomersPage() {
       phone: "",
       address: "",
       stateRegion: "",
+      state: "",
+      district: "",
       registrationCode: "",
       dateOfRegistration: "",
       gst: "",
@@ -2913,6 +2923,8 @@ export function CustomersPage() {
       phone: customer.phone ?? "",
       address: customer.address ?? "",
       stateRegion: customer.stateRegion ?? "",
+      state: customer.state ?? "",
+      district: customer.district ?? "",
       registrationCode: customer.registrationCode ?? "",
       dateOfRegistration: customer.dateOfRegistration ? String(customer.dateOfRegistration).slice(0, 10) : "",
       gst: customer.gst ?? "",
@@ -2946,6 +2958,8 @@ export function CustomersPage() {
       phone: request.phone ?? "",
       address: request.address ?? "",
       stateRegion: request.stateRegion ?? "",
+      state: request.state ?? "",
+      district: request.district ?? "",
       registrationCode: request.registrationCode ?? "",
       dateOfRegistration: request.dateOfRegistration ? String(request.dateOfRegistration).slice(0, 10) : "",
       gst: request.gst ?? "",
@@ -2978,7 +2992,9 @@ export function CustomersPage() {
     const deliveryAddress1 = form.deliveryAddress1.trim();
     const deliveryAddress2 = form.deliveryAddress2.trim();
     const deliveryAddress3 = form.deliveryAddress3.trim();
-    const stateRegion = form.stateRegion.trim();
+    const state = form.state.trim();
+    const district = form.district.trim();
+    const stateRegion = state ? (district ? `${state} - ${district}` : state) : form.stateRegion.trim();
     const registrationCode = form.registrationCode.trim();
     const dateOfRegistration = form.dateOfRegistration.trim();
     const gst = form.gst.trim();
@@ -3008,6 +3024,8 @@ export function CustomersPage() {
           phone,
           address: address || billingAddress || deliveryAddress1 || deliveryAddress2 || deliveryAddress3,
           stateRegion: stateRegion || undefined,
+          state: state || undefined,
+          district: district || undefined,
           registrationCode: registrationCode || undefined,
           dateOfRegistration: dateOfRegistration || undefined,
           gst: gst || undefined,
@@ -3034,6 +3052,8 @@ export function CustomersPage() {
           status,
           address: address || billingAddress || deliveryAddress1 || deliveryAddress2 || deliveryAddress3,
           stateRegion: stateRegion || undefined,
+          state: state || undefined,
+          district: district || undefined,
           registrationCode: registrationCode || undefined,
           dateOfRegistration: dateOfRegistration || undefined,
           gst: gst || undefined,
@@ -3060,6 +3080,8 @@ export function CustomersPage() {
           phone,
           address: address || billingAddress || deliveryAddress1 || deliveryAddress2 || deliveryAddress3,
           stateRegion: stateRegion || undefined,
+          state: state || undefined,
+          district: district || undefined,
           registrationCode: registrationCode || undefined,
           dateOfRegistration: dateOfRegistration || undefined,
           gst: gst || undefined,
@@ -3137,7 +3159,10 @@ export function CustomersPage() {
       return (
         c.name.toLowerCase().includes(query) ||
         (c.email ?? "").toLowerCase().includes(query) ||
-        (c.phone ?? "").toLowerCase().includes(query)
+        (c.phone ?? "").toLowerCase().includes(query) ||
+        (c.state ?? "").toLowerCase().includes(query) ||
+        (c.district ?? "").toLowerCase().includes(query) ||
+        (c.stateRegion ?? "").toLowerCase().includes(query)
       );
     });
   }, [customersRes.data, q]);
@@ -3319,14 +3344,14 @@ export function CustomersPage() {
           </span>
           <SearchBar value={q} onChange={setQ} />
         </div>
-        <Table headers={["#", "Name", "Type", "Distributorship", "Email", "Phone", "Status", "Actions"]}>
+        <Table headers={["#", "Name", "Type", "State", "District", "Distributorship", "Email", "Phone", "Status", "Actions"]}>
           {customersRes.loading ? (
             <TR>
-              <TD colSpan={8} className="text-center text-gray-400 py-8">Loading...</TD>
+              <TD colSpan={10} className="text-center text-gray-400 py-8">Loading...</TD>
             </TR>
           ) : customersRes.error ? (
             <TR>
-              <TD colSpan={8} className="text-center text-red-500 py-8">{customersRes.error}</TD>
+              <TD colSpan={10} className="text-center text-red-500 py-8">{customersRes.error}</TD>
             </TR>
           ) : null}
           {filtered.map((c, i) => (
@@ -3334,6 +3359,8 @@ export function CustomersPage() {
               <TD className="text-gray-400">{i + 1}</TD>
               <TD><span className="text-blue-600 font-medium hover:text-blue-700 cursor-pointer">{c.name}</span></TD>
               <TD>{c.type === "Distributor" ? <Badge color="orange">Distributor</Badge> : <Badge color="blue">Individual</Badge>}</TD>
+              <TD className="text-gray-500 text-xs font-medium">{c.state || (c.stateRegion?.split("-")[0]?.trim()) || "-"}</TD>
+              <TD className="text-gray-500 text-xs font-medium">{c.district || (c.stateRegion?.includes("-") ? c.stateRegion?.split("-")[1]?.trim() : "") || "-"}</TD>
               <TD className="text-gray-500 text-xs">{c.distributorshipType || "-"}</TD>
               <TD className="text-gray-500 text-xs">{c.email || "-"}</TD>
               <TD className="text-gray-500 font-mono text-xs">{c.phone}</TD>
@@ -3424,6 +3451,27 @@ export function CustomersPage() {
                     <option>Exclusive</option>
                     <option>Non Exclusive</option>
                   </select>
+                </div>
+                <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <SearchableSelect
+                    label="State"
+                    value={form.state}
+                    onChange={(nextState) => setForm((f) => ({ ...f, state: nextState, district: "" }))}
+                    options={geoStateOptions}
+                    placeholder="Select state / UT"
+                    loading={Boolean(geoRes.loading)}
+                    error={!geoStateOptions.length && !geoRes.loading ? "State list unavailable." : undefined}
+                  />
+                  <SearchableSelect
+                    label="District"
+                    value={form.district}
+                    onChange={(nextDistrict) => setForm((f) => ({ ...f, district: nextDistrict }))}
+                    options={primaryCustomerDistrictOptions}
+                    placeholder={form.state ? "Select district" : "Select state first"}
+                    disabled={!form.state}
+                    loading={Boolean(geoRes.loading)}
+                    error={form.state && !primaryCustomerDistrictOptions.length && !geoRes.loading ? "No district found for selected state." : undefined}
+                  />
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Email</label>
@@ -8851,7 +8899,7 @@ function groupDistributorsByState(rows: Customer[], targetStateRaw: string) {
   const unmapped: Customer[] = [];
   const otherStates: Customer[] = [];
   for (const customerItem of rows) {
-    const raw = (customerItem.stateRegion || "").trim();
+    const raw = (customerItem.state || customerItem.stateRegion || "").trim();
     if (!raw) {
       unmapped.push(customerItem);
       continue;
