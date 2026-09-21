@@ -818,6 +818,10 @@ export async function listPendingCustomerRegistrations() {
   return apiGet<PendingCustomerRegistration[]>("/api/customers/pending-registrations");
 }
 
+export async function listSalesPersons() {
+  return apiGet<Array<{ id: string; name: string; email?: string; mobile?: string; role?: string }>>("/api/users/sales-persons");
+}
+
 export async function approvePendingCustomerRegistration(id: string) {
   return apiPost<{ message: string; customer: Customer }>(`/api/customers/approve/${id}`, {});
 }

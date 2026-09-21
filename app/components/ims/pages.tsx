@@ -83,6 +83,7 @@ import {
   listPendingRegistrations,
   approvePendingRegistration,
   listPendingCustomerRegistrations,
+  listSalesPersons,
   approvePendingCustomerRegistration,
   updateUser,
   createUser,
@@ -2715,6 +2716,11 @@ export function CustomersPage() {
   const customersRes = useAsyncData(() => listCustomers({ page: 1, limit: 500 }), []);
   const pendingCustomerRes = useAsyncData(listPendingCustomerRegistrations, []);
   const geoRes = useAsyncData(getIndiaGeography, []);
+  const salesPersonsRes = useAsyncData(listSalesPersons, []);
+  const salesPersonOptions = useMemo(() => {
+    const users = (salesPersonsRes.data as Array<{ id: string; name: string; role?: string }> | undefined) ?? [];
+    return users.map((u) => ({ value: u.name, label: `${u.name}${u.role ? ` (${u.role})` : ""}` }));
+  }, [salesPersonsRes.data]);
   const [modalOpen, setModalOpen] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvingCustomerId, setApprovingCustomerId] = useState<string | null>(null);
@@ -3678,12 +3684,14 @@ export function CustomersPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Relevant Sales Person</label>
-                    <input
+                    <SearchableSelect
+                      label="Relevant Sales Person"
                       value={form.relevantSalesPerson}
-                      onChange={(e) => setForm((f) => ({ ...f, relevantSalesPerson: e.target.value }))}
-                      placeholder="Sales person name"
-                      className="w-full px-3 py-1 rounded-lg border border-gray-200 bg-white text-sm text-gray-800 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                      onChange={(nextSalesPerson) => setForm((f) => ({ ...f, relevantSalesPerson: nextSalesPerson }))}
+                      options={salesPersonOptions}
+                      placeholder="Select Sales Person"
+                      loading={Boolean(salesPersonsRes.loading)}
+                      error={!salesPersonOptions.length && !salesPersonsRes.loading ? "No sales persons found." : undefined}
                     />
                   </div>
                 </div>
@@ -10173,6 +10181,28 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   const priceEntriesRes = useAsyncData(listPriceEntries, []);
   const distributorRequestsRes = useAsyncData(() => listPendingCustomerRegistrations(), []);
   const geoRes = useAsyncData(getIndiaGeography, []);
+  const salesPersonsRes = useAsyncData(listSalesPersons, []);
+  const salesPersonOptions = useMemo(() => {
+    const users = (salesPersonsRes.data as Array<{ id: string; name: string; role?: string }> | undefined) ?? [];
+    return users.map((u) => ({ value: u.name, label: `${u.name}${u.role ? ` (${u.role})` : ""}` }));
+  }, [salesPersonsRes.data]);
+
+  const isSalesUser = Boolean(
+    currentUser?.role &&
+    currentUser.role.toLowerCase().includes("sales") &&
+    !currentUser.role.toLowerCase().includes("admin") &&
+    currentUser.role !== "Admin"
+  );
+
+  const accessibleCustomers = useMemo(() => {
+    const all = customersRes.data?.data ?? [];
+    if (!isSalesUser || !currentUser?.name) return all;
+    const currentName = currentUser.name.trim().toLowerCase();
+    return all.filter((c) => {
+      const sp = (c.relevantSalesPerson || "").trim().toLowerCase();
+      return !sp || sp === currentName;
+    });
+  }, [customersRes.data, isSalesUser, currentUser?.name]);
 
   const livePriceTable = useMemo(() => {
     const table = buildPriceTableFromEntries(priceEntriesRes.data);
@@ -10391,8 +10421,8 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
     currentUser?.assignedStates?.[0] ||
     "";
   const piDistributorGroups = useMemo(
-    () => groupDistributorsByState(customersRes.data?.data ?? [], assignedStateRegion),
-    [customersRes.data, assignedStateRegion]
+    () => groupDistributorsByState(accessibleCustomers, assignedStateRegion),
+    [accessibleCustomers, assignedStateRegion]
   );
   /** The dispatch tab picks an already-generated PI from a dropdown, so the "PI-YYYY-XXXX"
    * placeholder the PI tab starts from counts as nothing selected rather than a typed number. */
@@ -10740,8 +10770,8 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   const pendingDraftInventoryStatus = pendingDraftInvalidItems.length ? "Select Valid Product" : pendingDraftStockShortages.length ? "Insufficient" : "Available";
   const pendingDraftInventoryBadgeColor = pendingDraftInvalidItems.length ? "yellow" : pendingDraftStockShortages.length ? "red" : "green";
   const pendingDraftDistributorGroups = useMemo(
-    () => groupDistributorsByState(customersRes.data?.data ?? [], pendingPiDraft?.stateRegion || assignedStateRegion),
-    [customersRes.data, pendingPiDraft?.stateRegion, assignedStateRegion]
+    () => groupDistributorsByState(accessibleCustomers, pendingPiDraft?.stateRegion || assignedStateRegion),
+    [accessibleCustomers, pendingPiDraft?.stateRegion, assignedStateRegion]
   );
   const pendingDraftCustomer = pendingPiDraft?.customerId ? customerById.get(pendingPiDraft.customerId) : undefined;
   const pendingDraftShipToAddress = resolveShipToAddress(pendingDraftCustomer, pendingPiDraft?.shipToAddressKey);
@@ -12048,12 +12078,14 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Name of Relevant Sales Person</label>
-                  <input
+                  <SearchableSelect
+                    label="Name of Relevant Sales Person"
                     value={distKyc.relevantSalesPerson}
-                    onChange={(event) => updateDistributorKyc("relevantSalesPerson", event.target.value)}
-                    placeholder="Sales person name"
-                    className="w-full px-3 py-1 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                    onChange={(nextSalesPerson) => updateDistributorKyc("relevantSalesPerson", nextSalesPerson)}
+                    options={salesPersonOptions}
+                    placeholder="Select Sales Person"
+                    loading={Boolean(salesPersonsRes.loading)}
+                    error={!salesPersonOptions.length && !salesPersonsRes.loading ? "No sales persons found." : undefined}
                   />
                 </div>
               </div>
