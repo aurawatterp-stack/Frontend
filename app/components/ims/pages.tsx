@@ -11202,7 +11202,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
 
     setSubmitting(true);
     try {
-      await createSale({
+      const createdSale = await createSale({
         serialNumber: serial || undefined,
         documentType,
         referenceNo: reference,
@@ -11231,13 +11231,14 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
       });
       manufacturedRes.reload();
       salesRes.reload();
+      const assignedRefNo = createdSale?.referenceNo || reference;
       clearForm();
       setFormOk(
         needsStockApproval
-          ? "The selected item is out of stock. Your PI request has been sent to Admin for approval."
+          ? `PI ${assignedRefNo} requested. Out of stock item sent to Admin for approval.`
           : requiresForcePiApproval
-            ? "The PI has been saved in Pending PI for Admin approval."
-            : "PI generated. Next step: Accounts payment verification."
+            ? `PI ${assignedRefNo} saved in Pending PI for Admin approval.`
+            : `PI ${assignedRefNo} generated successfully! Next step: Accounts payment verification.`
       );
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to record sale.");
