@@ -2719,8 +2719,33 @@ export function CustomersPage() {
   const salesPersonsRes = useAsyncData(listSalesPersons, []);
   const salesPersonOptions = useMemo(() => {
     const users = (salesPersonsRes.data as Array<{ id: string; name: string; role?: string }> | undefined) ?? [];
-    return users.map((u) => ({ value: u.name, label: `${u.name}${u.role ? ` (${u.role})` : ""}` }));
-  }, [salesPersonsRes.data]);
+    const optionsMap = new Map<string, { value: string; label: string }>();
+
+    users.forEach((u) => {
+      if (u.name) {
+        optionsMap.set(u.name.toLowerCase(), {
+          value: u.name,
+          label: `${u.name}${u.role ? ` (${u.role})` : ""}`,
+        });
+      }
+    });
+
+    (customersRes.data?.data ?? []).forEach((c) => {
+      const sp = (c.relevantSalesPerson || "").trim();
+      if (sp && !optionsMap.has(sp.toLowerCase())) {
+        optionsMap.set(sp.toLowerCase(), { value: sp, label: sp });
+      }
+    });
+
+    (pendingCustomerRes.data ?? []).forEach((p) => {
+      const sp = (p.relevantSalesPerson || "").trim();
+      if (sp && !optionsMap.has(sp.toLowerCase())) {
+        optionsMap.set(sp.toLowerCase(), { value: sp, label: sp });
+      }
+    });
+
+    return Array.from(optionsMap.values());
+  }, [salesPersonsRes.data, customersRes.data, pendingCustomerRes.data]);
   const [modalOpen, setModalOpen] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvingCustomerId, setApprovingCustomerId] = useState<string | null>(null);
@@ -3691,7 +3716,6 @@ export function CustomersPage() {
                       options={salesPersonOptions}
                       placeholder="Select Sales Person"
                       loading={Boolean(salesPersonsRes.loading)}
-                      error={!salesPersonOptions.length && !salesPersonsRes.loading ? "No sales persons found." : undefined}
                     />
                   </div>
                 </div>
@@ -12086,7 +12110,6 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                     options={salesPersonOptions}
                     placeholder="Select Sales Person"
                     loading={Boolean(salesPersonsRes.loading)}
-                    error={!salesPersonOptions.length && !salesPersonsRes.loading ? "No sales persons found." : undefined}
                   />
                 </div>
               </div>
