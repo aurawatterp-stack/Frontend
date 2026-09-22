@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
-  const hostname = request.headers.get("host") || "";
+  const hostname = (request.headers.get("host") || "").toLowerCase();
   const url = request.nextUrl.clone();
   const { pathname } = url;
+
+  // Check if request is running locally (localhost, 127.0.0.1, or local IP)
+  const isLocal =
+    hostname.includes("localhost") ||
+    hostname.includes("127.0.0.1") ||
+    hostname.endsWith(".local");
 
   // 1. If accessing subdomains directly:
   if (hostname.startsWith("erp.")) {
@@ -23,14 +29,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 2. If someone tries to open the old paths on main domain (aurawatt.in/admin or aurawatt.in/support):
-  // Force REDIRECT them to the new subdomains (erp.aurawatt.in and support.aurawatt.in)
-  if (pathname.startsWith("/admin")) {
-    return NextResponse.redirect(new URL("https://erp.aurawatt.in", request.url), 301);
-  }
+  // 2. Production Domain Redirects (ONLY for main domain aurawatt.in / www.aurawatt.in, NOT localhost):
+  if (!isLocal && (hostname.includes("aurawatt.in") || hostname.includes("www.aurawatt.in"))) {
+    if (pathname.startsWith("/admin")) {
+      return NextResponse.redirect(new URL("https://erp.aurawatt.in", request.url), 307);
+    }
 
-  if (pathname.startsWith("/support")) {
-    return NextResponse.redirect(new URL("https://support.aurawatt.in", request.url), 301);
+    if (pathname.startsWith("/support")) {
+      return NextResponse.redirect(new URL("https://support.aurawatt.in", request.url), 307);
+    }
   }
 
   return NextResponse.next();
