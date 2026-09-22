@@ -11658,14 +11658,8 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                               />
                             </td>
                             <td className="border border-gray-300 px-2 py-2 text-right font-mono font-semibold">{inrAmount(itemNumbers.taxable)}</td>
-                            <td className="border border-gray-300 px-2 py-2 text-center">
-                              <input
-                                type="number"
-                                min="0"
-                                value={item.gstRate}
-                                onChange={(event) => updatePiItem(itemIndex, { gstRate: event.target.value })}
-                                className="w-12 bg-transparent text-center font-mono text-gray-900 outline-none"
-                              />%
+                            <td className="border border-gray-300 px-2 py-2 text-center font-mono font-semibold">
+                              {item.gstRate}%
                             </td>
                             <td className="border border-gray-300 px-2 py-2 text-right font-bold">₹ {inrAmount(itemNumbers.total)}</td>
                           </tr>
