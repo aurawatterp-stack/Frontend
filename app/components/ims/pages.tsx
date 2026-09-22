@@ -8878,7 +8878,8 @@ function isPlaceholderPiNumber(value: string) {
 }
 
 function placeholderPiNumber() {
-  return "AVAV/PI/2627/XXXX";
+  const year = new Date().getFullYear();
+  return `PI-${year}-XXXX`;
 }
 
 /** Area Allotted entries are stored as one "State - District" line per allotted area. Neither an
@@ -8944,11 +8945,12 @@ function groupDistributorsByState(rows: Customer[], targetStateRaw: string) {
 }
 
 function defaultPiNumber(existingSales: Sale[] = []) {
+  const year = new Date().getFullYear();
   const maxNumber = existingSales.reduce((max, saleItem) => {
     const match = String(saleItem.referenceNo ?? "").match(/(?:AVAV\/PI\/2627\/|PI-\d{4}-|PI-)(\d+)/i);
     return match ? Math.max(max, Number(match[1]) || 0) : max;
   }, 0);
-  return `AVAV/PI/2627/${String(maxNumber + 1).padStart(4, "0")}`;
+  return `PI-${year}-${String(maxNumber + 1).padStart(4, "0")}`;
 }
 
 function productLabel(product: Product) {
