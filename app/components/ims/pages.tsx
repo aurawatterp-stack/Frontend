@@ -10740,16 +10740,19 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   };
   const piItemPayload = useMemo(() => piLineItemPayload(piItems), [piItems]);
   const requestedQuantity = piItemPayload.reduce((sum, item) => sum + item.quantity, 0);
-  const selectedMaterialName = piItemPayload[0]?.materialName ?? materialName.trim();
   const materialOptionSet = useMemo(() => new Set(materialOptions), [materialOptions]);
-  const invalidPiItems = piItemPayload.filter((item) => !materialOptionSet.has(item.materialName));
+  const firstProductItem = piItemPayload.find((item) => !item.isFreight && item.materialName !== "Freight Outward");
+  const selectedProductMaterialName = firstProductItem?.materialName ?? (materialOptionSet.has(materialName.trim()) ? materialName.trim() : "");
+  const invalidPiItems = piItemPayload.filter((item) => !item.isFreight && item.materialName !== "Freight Outward" && !materialOptionSet.has(item.materialName));
   const requestedByMaterial = piItemPayload.reduce((totals, item) => {
-    totals.set(item.materialName, (totals.get(item.materialName) ?? 0) + item.quantity);
+    if (!item.isFreight && item.materialName !== "Freight Outward") {
+      totals.set(item.materialName, (totals.get(item.materialName) ?? 0) + item.quantity);
+    }
     return totals;
   }, new Map<string, number>());
   const stockShortages = Array.from(requestedByMaterial.entries()).filter(([name, total]) => materialOptionSet.has(name) && total > (stockByMaterial.get(name) ?? 0));
-  const availableQuantity = selectedMaterialName && materialOptionSet.has(selectedMaterialName)
-    ? stockByMaterial.get(selectedMaterialName) ?? 0
+  const availableQuantity = selectedProductMaterialName && materialOptionSet.has(selectedProductMaterialName)
+    ? stockByMaterial.get(selectedProductMaterialName) ?? 0
     : (manufacturedRes.data?.data ?? []).length;
   const isKnownMaterial = piItemPayload.length > 0 && invalidPiItems.length === 0;
   const isStockInsufficient = stockShortages.length > 0;
@@ -10787,9 +10790,11 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   const pendingDraftGst = pendingDraftItems.reduce((sum, item) => sum + piLineItemNumbers(item).gst, 0);
   const pendingDraftTotal = pendingDraftTaxable + pendingDraftGst;
   const pendingDraftTaxGroups = piTaxGroups(pendingDraftItems);
-  const pendingDraftInvalidItems = pendingDraftPayload.filter((item) => !materialOptionSet.has(item.materialName));
+  const pendingDraftInvalidItems = pendingDraftPayload.filter((item) => !item.isFreight && item.materialName !== "Freight Outward" && !materialOptionSet.has(item.materialName));
   const pendingDraftRequestedByMaterial = pendingDraftPayload.reduce((totals, item) => {
-    totals.set(item.materialName, (totals.get(item.materialName) ?? 0) + item.quantity);
+    if (!item.isFreight && item.materialName !== "Freight Outward") {
+      totals.set(item.materialName, (totals.get(item.materialName) ?? 0) + item.quantity);
+    }
     return totals;
   }, new Map<string, number>());
   const pendingDraftStockShortages = Array.from(pendingDraftRequestedByMaterial.entries()).filter(([name, total]) => materialOptionSet.has(name) && total > (stockByMaterial.get(name) ?? 0));
@@ -11617,8 +11622,8 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                                 </div>
                               )}
                             </td>
-                            <td className="border border-gray-300 px-2 py-2 text-center">
-                              <input value={item.hsnSac} onChange={(event) => updatePiItem(itemIndex, { hsnSac: event.target.value })} className="w-16 bg-transparent text-center font-mono text-gray-900 outline-none" />
+                            <td className="border border-gray-300 px-2 py-2 text-center font-mono font-semibold">
+                              {item.hsnSac || "-"}
                             </td>
                             <td className="border border-gray-300 px-2 py-2 text-center">
                               <input
@@ -11785,7 +11790,7 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                 <label className="block text-xs text-gray-500 mb-1">Inventory Check</label>
                 <div className="w-full px-3 py-1 rounded-lg bg-gray-50 border border-gray-200 text-sm flex items-center justify-between">
                   <span className="text-gray-600">
-                    Available: <span className="font-mono font-semibold">{selectedMaterialName && !isKnownMaterial ? "-" : availableQuantity}</span>
+                    Available: <span className="font-mono font-semibold">{selectedProductMaterialName && !isKnownMaterial ? "-" : availableQuantity}</span>
                   </span>
                   <Badge color={inventoryBadgeColor}>{inventoryStatus}</Badge>
                 </div>
