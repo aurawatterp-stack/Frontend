@@ -10672,13 +10672,24 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
   };
   const addPiItem = () => {
     const lockedPriceCategory = registeredPiPriceCategory(dealerRegistered === "Yes", priceCategory);
-    setPiItems((current) => [...current, { ...blankPiLineItem(), rate: lockedPriceCategory === "Manual" ? "" : String(defaultRateForPriceCategory(lockedPriceCategory)) }]);
+    const newItem = { ...blankPiLineItem(), rate: lockedPriceCategory === "Manual" ? "" : String(defaultRateForPriceCategory(lockedPriceCategory)) };
+    setPiItems((current) => {
+      const freightIndex = current.findIndex((item) => item.isFreight || item.materialName === "Freight Outward");
+      if (freightIndex === -1) return [...current, newItem];
+      const next = [...current];
+      next.splice(freightIndex, 0, newItem);
+      return next;
+    });
   };
   const addFreightPiItem = () => {
-    setPiItems((current) => [
-      ...current,
-      { materialName: "Freight Outward", hsnSac: "996511", quantity: "1", rate: "1500", discount: "0", gstRate: "18", isFreight: true }
-    ]);
+    setPiItems((current) => {
+      const alreadyHasFreight = current.some((item) => item.isFreight || item.materialName === "Freight Outward");
+      if (alreadyHasFreight) return current;
+      return [
+        ...current,
+        { materialName: "Freight Outward", hsnSac: "996511", quantity: "1", rate: "1500", discount: "0", gstRate: "18", isFreight: true }
+      ];
+    });
   };
   const removePiItem = (index: number) => {
     setPiItems((current) => (current.length === 1 ? current : current.filter((_, itemIndex) => itemIndex !== index)));
@@ -10727,10 +10738,14 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
     });
   };
   const addPendingPiDraftItem = () => {
-    setPendingPiDraft((current) => current ? {
-      ...current,
-      items: [...current.items, { ...blankPiLineItem(), rate: registeredPiPriceCategory(current.dealerRegistered === "Yes", current.priceCategory) === "Manual" ? "" : String(defaultRateForPriceCategory(registeredPiPriceCategory(current.dealerRegistered === "Yes", current.priceCategory))) }],
-    } : current);
+    setPendingPiDraft((current) => {
+      if (!current) return current;
+      const lockedCategory = registeredPiPriceCategory(current.dealerRegistered === "Yes", current.priceCategory);
+      const newItem = { ...blankPiLineItem(), rate: lockedCategory === "Manual" ? "" : String(defaultRateForPriceCategory(lockedCategory)) };
+      const freightIndex = current.items.findIndex((item) => item.isFreight || item.materialName === "Freight Outward");
+      const items = freightIndex === -1 ? [...current.items, newItem] : [...current.items.slice(0, freightIndex), newItem, ...current.items.slice(freightIndex)];
+      return { ...current, items };
+    });
   };
   const removePendingPiDraftItem = (index: number) => {
     setPendingPiDraft((current) => current ? {
@@ -10739,7 +10754,10 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
     } : current);
   };
   const piItemPayload = useMemo(() => piLineItemPayload(piItems), [piItems]);
-  const requestedQuantity = piItemPayload.reduce((sum, item) => sum + item.quantity, 0);
+  const requestedQuantity = piItemPayload
+    .filter((item) => !item.isFreight && item.materialName !== "Freight Outward")
+    .reduce((sum, item) => sum + item.quantity, 0);
+  const hasFreightItem = piItems.some((item) => item.isFreight || item.materialName === "Freight Outward");
   const materialOptionSet = useMemo(() => new Set(materialOptions), [materialOptions]);
   const firstProductItem = piItemPayload.find((item) => !item.isFreight && item.materialName !== "Freight Outward");
   const selectedProductMaterialName = firstProductItem?.materialName ?? (materialOptionSet.has(materialName.trim()) ? materialName.trim() : "");
@@ -11567,109 +11585,112 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                       </tr>
                     </thead>
                     <tbody>
-                      {piItems.map((item, itemIndex) => {
-                        const itemNumbers = piLineItemNumbers(item);
-                        return (
-                          <tr key={itemIndex}>
-                            <td className="border border-gray-300 px-2 py-2 text-center font-bold">
-                              <div>{itemIndex + 1}</div>
-                              {piItems.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removePiItem(itemIndex)}
-                                  className="mt-2 text-[11px] font-bold text-red-500 hover:text-red-600"
-                                >
-                                  Remove
-                                </button>
-                              )}
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              {item.isFreight ? (
+                      {(() => {
+                        let productSlNoCounter = 0;
+                        return piItems.map((item, itemIndex) => {
+                          const isFreight = item.isFreight || item.materialName === "Freight Outward";
+                          if (!isFreight) productSlNoCounter += 1;
+                          const displaySlNo = isFreight ? "-" : productSlNoCounter;
+                          const itemNumbers = piLineItemNumbers(item);
+                          return (
+                            <tr key={itemIndex}>
+                              <td className="border border-gray-300 px-2 py-2 text-center font-bold">
+                                <div>{displaySlNo}</div>
+                                {piItems.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removePiItem(itemIndex)}
+                                    className="mt-2 text-[11px] font-bold text-red-500 hover:text-red-600"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                {item.isFreight ? (
+                                  <div className="w-full rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 font-bold text-gray-900">
+                                    Freight Outward
+                                  </div>
+                                ) : (
+                                  <select
+                                    value={item.materialName}
+                                    onChange={(event) => {
+                                      updatePiItem(itemIndex, { materialName: event.target.value });
+                                      if (itemIndex === 0) setMaterialName(event.target.value);
+                                    }}
+                                    className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-semibold text-gray-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                                  >
+                                    <option value="">Select product specification...</option>
+                                    {productsRes.loading ? (
+                                      <option value="" disabled>Loading products...</option>
+                                    ) : productsRes.error ? (
+                                      <option value="" disabled>Products access error</option>
+                                    ) : materialOptions.length === 0 ? (
+                                      <option value="" disabled>No products available</option>
+                                    ) : (
+                                      materialOptions.map((optionItem) => <option key={optionItem} value={optionItem}>{optionItem}</option>)
+                                    )}
+                                  </select>
+                                )}
+                                {productsRes.error && (
+                                  <div className="mt-1 text-[11px] font-medium text-red-600">{productsRes.error}</div>
+                                )}
+                                {item.materialName && !item.isFreight && materialOptionSet.has(item.materialName) && (
+                                  <div className="mt-1 text-[11px] text-gray-500">
+                                    Available stock: <span className="font-mono font-semibold">{stockByMaterial.get(item.materialName) ?? 0}</span>
+                                    <span className="ml-1 text-gray-400">(from In Stock manufactured serials)</span>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-center font-mono font-semibold">
+                                {item.hsnSac || "-"}
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-center">
                                 <input
-                                  value={item.materialName}
-                                  onChange={(event) => updatePiItem(itemIndex, { materialName: event.target.value })}
-                                  placeholder="Freight Outward"
-                                  className="w-full rounded-md border border-gray-300 bg-gray-50 px-2 py-1.5 font-bold text-gray-900 outline-none"
-                                />
-                              ) : (
-                                <select
-                                  value={item.materialName}
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity}
                                   onChange={(event) => {
-                                    updatePiItem(itemIndex, { materialName: event.target.value });
-                                    if (itemIndex === 0) setMaterialName(event.target.value);
+                                    updatePiItem(itemIndex, { quantity: event.target.value });
+                                    if (itemIndex === 0) setQuantity(event.target.value);
                                   }}
-                                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-semibold text-gray-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
-                                >
-                                  <option value="">Select product specification...</option>
-                                  {productsRes.loading ? (
-                                    <option value="" disabled>Loading products...</option>
-                                  ) : productsRes.error ? (
-                                    <option value="" disabled>Products access error</option>
-                                  ) : materialOptions.length === 0 ? (
-                                    <option value="" disabled>No products available</option>
-                                  ) : (
-                                    materialOptions.map((optionItem) => <option key={optionItem} value={optionItem}>{optionItem}</option>)
-                                  )}
-                                </select>
-                              )}
-                              {productsRes.error && (
-                                <div className="mt-1 text-[11px] font-medium text-red-600">{productsRes.error}</div>
-                              )}
-                              {item.materialName && !item.isFreight && materialOptionSet.has(item.materialName) && (
-                                <div className="mt-1 text-[11px] text-gray-500">
-                                  Available stock: <span className="font-mono font-semibold">{stockByMaterial.get(item.materialName) ?? 0}</span>
-                                  <span className="ml-1 text-gray-400">(from In Stock manufactured serials)</span>
-                                </div>
-                              )}
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-center font-mono font-semibold">
-                              {item.hsnSac || "-"}
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-center">
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(event) => {
-                                  updatePiItem(itemIndex, { quantity: event.target.value });
-                                  if (itemIndex === 0) setQuantity(event.target.value);
-                                }}
-                                className="w-14 bg-transparent text-center font-mono text-gray-900 outline-none"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-right">
-                              <input
-                                type="number"
-                                min="0"
-                                value={item.rate}
-                                readOnly={dealerRegistered === "Yes" && !item.isFreight}
-                                aria-readonly={dealerRegistered === "Yes" && !item.isFreight}
-                                title={dealerRegistered === "Yes" && !item.isFreight ? "Rates are fixed for registered PIs." : undefined}
-                                onChange={(event) => {
-                                  if (dealerRegistered === "Yes" && !item.isFreight) return;
-                                  updatePiItem(itemIndex, { rate: event.target.value });
-                                }}
-                                className={`w-20 bg-transparent text-right font-mono text-gray-900 outline-none ${dealerRegistered === "Yes" && !item.isFreight ? "cursor-not-allowed bg-gray-50 text-gray-500" : ""}`}
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-right font-mono">{inrAmount(itemNumbers.totalRaw)}</td>
-                            <td className="border border-gray-300 px-2 py-2 text-right font-mono">
-                              <input
-                                type="number"
-                                min="0"
-                                value={item.discount ?? "0"}
-                                onChange={(event) => updatePiItem(itemIndex, { discount: event.target.value })}
-                                className="w-16 bg-transparent text-right font-mono text-gray-900 outline-none"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-right font-mono font-semibold">{inrAmount(itemNumbers.taxable)}</td>
-                            <td className="border border-gray-300 px-2 py-2 text-center font-mono font-semibold">
-                              {item.gstRate}%
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-right font-bold">₹ {inrAmount(itemNumbers.total)}</td>
-                          </tr>
-                        );
-                      })}
+                                  className="w-14 bg-transparent text-center font-mono text-gray-900 outline-none"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={item.rate}
+                                  readOnly={dealerRegistered === "Yes" && !item.isFreight}
+                                  aria-readonly={dealerRegistered === "Yes" && !item.isFreight}
+                                  title={dealerRegistered === "Yes" && !item.isFreight ? "Rates are fixed for registered PIs." : undefined}
+                                  onChange={(event) => {
+                                    if (dealerRegistered === "Yes" && !item.isFreight) return;
+                                    updatePiItem(itemIndex, { rate: event.target.value });
+                                  }}
+                                  className={`w-20 bg-transparent text-right font-mono text-gray-900 outline-none ${dealerRegistered === "Yes" && !item.isFreight ? "cursor-not-allowed bg-gray-50 text-gray-500" : ""}`}
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-right font-mono">{inrAmount(itemNumbers.totalRaw)}</td>
+                              <td className="border border-gray-300 px-2 py-2 text-right font-mono">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={item.discount ?? "0"}
+                                  onChange={(event) => updatePiItem(itemIndex, { discount: event.target.value })}
+                                  className="w-16 bg-transparent text-right font-mono text-gray-900 outline-none"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-right font-mono font-semibold">{inrAmount(itemNumbers.taxable)}</td>
+                              <td className="border border-gray-300 px-2 py-2 text-center font-mono font-semibold">
+                                {item.gstRate}%
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-right font-bold">₹ {inrAmount(itemNumbers.total)}</td>
+                            </tr>
+                          );
+                        });
+                      })()}
                       <tr className="font-bold">
                         <td colSpan={3} className="border border-gray-300 px-2 py-2 text-center">Total</td>
                         <td className="border border-gray-300 px-2 py-2 text-center">{requestedQuantity}</td>
@@ -11694,7 +11715,12 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
                   <button
                     type="button"
                     onClick={addFreightPiItem}
-                    className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100"
+                    disabled={hasFreightItem}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-bold ${
+                      hasFreightItem
+                        ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed opacity-60"
+                        : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    }`}
                   >
                     <IconPlus size={14} /> Add Freight Outward (SAC 996511 @ 18%)
                   </button>
