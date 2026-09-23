@@ -11251,10 +11251,23 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
 
     setSubmitting(true);
     try {
+      let submitReferenceNo = reference;
+      if (!submitReferenceNo || isPlaceholderPiNumber(submitReferenceNo)) {
+        try {
+          const next = await getNextPiNumber();
+          if (next?.referenceNo) {
+            submitReferenceNo = next.referenceNo;
+            setReferenceNo(next.referenceNo);
+          }
+        } catch {
+          // fallback
+        }
+      }
+
       const createdSale = await createSale({
         serialNumber: serial || undefined,
         documentType,
-        referenceNo: reference,
+        referenceNo: submitReferenceNo,
         saleDate: date,
         customerId: isRegisteredPi ? resolvedCustomerId : undefined,
         unregisteredCustomerName: isRegisteredPi ? undefined : manualPiName,
@@ -11279,9 +11292,10 @@ export function SalesPage({ initialTab, currentUser }: { initialTab: SalesTabId;
         paymentStatus,
       });
       manufacturedRes.reload();
-      salesRes.reload();
-      const assignedRefNo = createdSale?.referenceNo || reference;
+      await salesRes.reload();
+      const assignedRefNo = createdSale?.referenceNo || submitReferenceNo;
       clearForm();
+      void refreshNextPiNumber();
       setFormOk(
         needsStockApproval
           ? `PI ${assignedRefNo} requested. Out of stock item sent to Admin for approval.`
