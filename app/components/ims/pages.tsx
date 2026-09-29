@@ -15711,6 +15711,46 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
     return <Badge color="yellow">Waiting for Admin Approval</Badge>;
   };
 
+  const renderReopenBadge = (c: Complaint | null | undefined) => {
+    if (!c || !c.reopenCount || c.reopenCount <= 0) return null;
+    return (
+      <span
+        key="reopen-badge"
+        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800 shadow-sm"
+        title={`This ticket was re-opened ${c.reopenCount} time(s) by ${c.reopenedByName || "Admin"}`}
+      >
+        🔄 Re-opened (x{c.reopenCount})
+      </span>
+    );
+  };
+
+  const renderReopenAlertBanner = (c: Complaint | null | undefined) => {
+    if (!c || !c.reopenCount || c.reopenCount <= 0) return null;
+    return (
+      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-5 text-amber-950 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 pb-2">
+          <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-amber-800">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 text-amber-900 text-[11px]">🔄</span>
+            <span>Re-opened Ticket (x{c.reopenCount})</span>
+          </div>
+          {c.reopenedAt ? (
+            <span className="text-[11px] font-medium text-amber-700">
+              Re-opened on {new Date(c.reopenedAt).toLocaleString()}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-2 text-amber-900">
+          <span className="font-semibold text-amber-800">Re-opened by:</span> {c.reopenedByName || "Admin"}
+        </div>
+        {c.reopenReason ? (
+          <div className="mt-1.5 rounded-lg border border-amber-200/80 bg-white/80 p-2.5 font-medium text-amber-950">
+            <span className="font-bold text-amber-900">Reason for Re-opening:</span> "{c.reopenReason}"
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   const clearForm = () => {
     setSerialNumber("");
     setCustomerName("");
@@ -17689,6 +17729,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {selectedComplaint ? complaintStatusBadge(selectedComplaint.status) : <Badge color="yellow">Serial Pending</Badge>}
+                {selectedComplaint ? renderReopenBadge(selectedComplaint) : null}
                 <Badge color={hasMandatoryL1Readings ? "green" : "yellow"}>
                   {hasMandatoryL1Readings ? "Inspection Valid" : "Readings Pending"}
                 </Badge>
@@ -17735,6 +17776,8 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                 )}
               </div>
             </div>
+
+            {selectedComplaint ? renderReopenAlertBanner(selectedComplaint) : null}
 
             {renderReplacementRequestSummary()}
 
@@ -18024,6 +18067,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {selectedComplaint ? complaintStatusBadge(selectedComplaint.status) : <Badge color="yellow">Ticket Pending</Badge>}
+                {selectedComplaint ? renderReopenBadge(selectedComplaint) : null}
                 <Badge color={onsiteInspection.observationNotes?.trim() ? "green" : "yellow"}>
                   {onsiteInspection.observationNotes?.trim() ? "Observation Added" : "Observation Pending"}
                 </Badge>
@@ -18411,6 +18455,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         {serviceStage === "l2" && (
           <div className="mb-6">
             <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">L2 Technical Diagnosis</div>
+            {selectedComplaint ? renderReopenAlertBanner(selectedComplaint) : null}
             {renderTicketSerialPicker()}
             {renderReplacementRequestSummary()}
             {renderL2HandoffSummary()}
@@ -18746,6 +18791,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
         {serviceStage === "l3" && (
           <div className="mb-6">
             <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">L3 Advanced OEM Support</div>
+            {selectedComplaint ? renderReopenAlertBanner(selectedComplaint) : null}
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
@@ -19802,6 +19848,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-sm font-bold text-gray-900">{selectedComplaint.productSerialNo || "No serial"}</span>
                         {complaintStatusBadge(selectedComplaint.status)}
+                        {renderReopenBadge(selectedComplaint)}
                         {isWaitingLobbyViewOnly && (
                           <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-bold text-blue-800">
                             👁️ View Only (Waiting Lobby)
@@ -19825,6 +19872,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       <div className="mt-1 text-xs font-semibold text-gray-600">
                         SLA: {getComplaintSlaState(selectedComplaint).remainingText} | {getComplaintSlaState(selectedComplaint).label}
                       </div>
+                      {renderReopenAlertBanner(selectedComplaint)}
                     </div>
                     {canStartComplaintWork && complaintListTab !== "waiting" && !isWaitingLobbyComplaint(selectedComplaint) && !closedComplaintStatuses.includes(selectedComplaint.status) && (
                       <button
@@ -20117,6 +20165,7 @@ export function ComplaintsConsumerPage({ currentUser }: { currentUser?: User }) 
                       </TD>
                       <TD>
                         {complaintListTab === "dispatch" ? dispatchStageBadge(c) : complaintStatusBadge(c.status)}
+                        {renderReopenBadge(c)}
                         {c.status === HOLD_TICKET_STATUS ? (
                           <div className="mt-1 max-w-[220px] text-[11px] leading-4 text-gray-500">
                             {c.holdReason ? (

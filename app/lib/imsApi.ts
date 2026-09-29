@@ -332,6 +332,11 @@ export type Complaint = {
   heldAt?: string;
   heldByName?: string;
   statusBeforeHold?: string;
+  reopenCount?: number;
+  reopenedAt?: string;
+  reopenedById?: string;
+  reopenedByName?: string;
+  reopenReason?: string;
   queuePosition?: number;
   initialAction?: string;
   trackingNotes?: string;
